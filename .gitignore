@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+
+# AWS SAM
+.aws-sam/
+samconfig.toml.bak
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/

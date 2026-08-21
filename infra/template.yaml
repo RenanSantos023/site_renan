@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ultra-flashcards - MVP FSRS Engine Serverless Infrastructure
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 256
+    Runtime: python3.12
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref AnkiSaaSTable
+        POWERTOOLS_SERVICE_NAME: fsrs-engine
+        LOG_LEVEL: INFO
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Environment stage (dev, staging, prod)
+  CognitoUserPoolArn:
+    Type: String
+    Default: ''
+    Description: ARN of the Cognito User Pool for JWT validation (optional in dev)
+
+Conditions:
+  HasCognitoUserPool: !Not [!Equals [!Ref CognitoUserPoolArn, '']]
+
+Resources:
+  # =========================================================================
+  # DynamoDB Table - Single Table Design
+  # =========================================================================
+  AnkiSaaSTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'AnkiSaaS-${Stage}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # =========================================================================
+  # HTTP API (API Gateway v2)
+  # =========================================================================
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Amz-Date
+          - X-Api-Key
+          - X-Amz-Security-Token
+        AllowOrigins:
+          - '*'
+
+  # =========================================================================
+  # Lambda Functions
+  # =========================================================================
+  CreateNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.create_note.lambda_handler
+      CodeUri: ../src/
+      Description: Cria notas e gera cartões derivados em estado NEW
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        CreateNote:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /notes
+            Method: POST
+
+  GetDueCardsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.get_due_cards.lambda_handler
+      CodeUri: ../src/
+      Description: Consulta cartões vencidos ou prontos para estudo via GSI1
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        GetDueCards:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/due
+            Method: GET
+
+  ProcessReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.process_review.lambda_handler
+      CodeUri: ../src/
+      Description: Processa a revisão do cartão com o algoritmo FSRS v4.5 e atualiza estado no DynamoDB
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        ProcessReview:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/review
+            Method: POST
+
+Outputs:
+  HttpApiUrl:
+    Description: Base URL for HTTP API
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref AnkiSaaSTable
+  DynamoDBTableArn:
+    Description: ARN of the DynamoDB table
+    Value: !GetAtt AnkiSaaSTable.Arn
