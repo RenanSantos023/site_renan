@@ -349,38 +349,38 @@ export default function StudyView({
             <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-extrabold uppercase">Espaço</span>
           </button>
         ) : (
-          <div className="flex gap-3 w-full">
+          <div className="flex gap-2 sm:gap-3 w-full">
             <button 
               onClick={() => submitReview(1)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-3 rounded-xl border border-again/30 bg-again/10 text-again hover:bg-again hover:text-white hover:shadow-lg hover:shadow-again/30 cursor-pointer relative transition-all duration-300 group"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-again/30 bg-again/10 text-again hover:bg-again hover:text-white hover:shadow-lg hover:shadow-again/30 cursor-pointer relative transition-all duration-300 group"
             >
-              <span className="text-[13px] font-bold">Again</span>
-              <span className="text-[11px] opacity-80">{nextAgain.scheduledDays}d</span>
-              <span className="absolute top-1.5 right-2 text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded">1</span>
+              <span className="text-xs sm:text-[13px] font-bold">Again</span>
+              <span className="text-[10px] sm:text-[11px] opacity-80">{nextAgain.scheduledDays}d</span>
+              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">1</span>
             </button>
             <button 
               onClick={() => submitReview(2)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-3 rounded-xl border border-hard/30 bg-hard/10 text-hard hover:bg-hard hover:text-white hover:shadow-lg hover:shadow-hard/30 cursor-pointer relative transition-all duration-300 group"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-hard/30 bg-hard/10 text-hard hover:bg-hard hover:text-white hover:shadow-lg hover:shadow-hard/30 cursor-pointer relative transition-all duration-300 group"
             >
-              <span className="text-[13px] font-bold">Hard</span>
-              <span className="text-[11px] opacity-80">{nextHard.scheduledDays}d</span>
-              <span className="absolute top-1.5 right-2 text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded">2</span>
+              <span className="text-xs sm:text-[13px] font-bold">Hard</span>
+              <span className="text-[10px] sm:text-[11px] opacity-80">{nextHard.scheduledDays}d</span>
+              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">2</span>
             </button>
             <button 
               onClick={() => submitReview(3)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-3 rounded-xl border border-good/30 bg-good/10 text-good hover:bg-good hover:text-white hover:shadow-lg hover:shadow-good/30 cursor-pointer relative transition-all duration-300 group"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-good/30 bg-good/10 text-good hover:bg-good hover:text-white hover:shadow-lg hover:shadow-good/30 cursor-pointer relative transition-all duration-300 group"
             >
-              <span className="text-[13px] font-bold">Good</span>
-              <span className="text-[11px] opacity-80">{nextGood.scheduledDays}d</span>
-              <span className="absolute top-1.5 right-2 text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded">3</span>
+              <span className="text-xs sm:text-[13px] font-bold">Good</span>
+              <span className="text-[10px] sm:text-[11px] opacity-80">{nextGood.scheduledDays}d</span>
+              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">3</span>
             </button>
             <button 
               onClick={() => submitReview(4)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-3 rounded-xl border border-easy/30 bg-easy/10 text-easy hover:bg-easy hover:text-white hover:shadow-lg hover:shadow-easy/30 cursor-pointer relative transition-all duration-300 group"
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-easy/30 bg-easy/10 text-easy hover:bg-easy hover:text-white hover:shadow-lg hover:shadow-easy/30 cursor-pointer relative transition-all duration-300 group"
             >
-              <span className="text-[13px] font-bold">Easy</span>
-              <span className="text-[11px] opacity-80">{nextEasy.scheduledDays}d</span>
-              <span className="absolute top-1.5 right-2 text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded">4</span>
+              <span className="text-xs sm:text-[13px] font-bold">Easy</span>
+              <span className="text-[10px] sm:text-[11px] opacity-80">{nextEasy.scheduledDays}d</span>
+              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">4</span>
             </button>
           </div>
         )}

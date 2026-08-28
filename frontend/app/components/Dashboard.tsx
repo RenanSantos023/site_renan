@@ -24,6 +24,7 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
   const [globalSearch, setGlobalSearch] = useState<string>("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   // Carregar dados salvos no LocalStorage (modo Mock) ao montar
   useEffect(() => {
@@ -79,14 +80,25 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg-app text-text-primary">
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* SIDEBAR */}
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         dueCount={getDueCardsCount()} 
+        sidebarOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
         setSelectedFolder={(folder: string | null) => {
           setSelectedFolder(folder);
           setActiveTab("library");
+          setSidebarOpen(false); // fechar no mobile após selecionar
         }}
       />
 
@@ -96,6 +108,7 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
           onSearchChange={setGlobalSearch} 
           searchValue={globalSearch} 
           onCreateClick={() => setActiveTab("create")}
+          onMenuClick={() => setSidebarOpen(true)}
         />
 
         {/* EXIBIÇÃO DE SEÇÃO DENTRO DA SPA */}

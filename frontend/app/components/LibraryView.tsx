@@ -122,12 +122,12 @@ export default function LibraryView({
       )}
 
       {/* Filtros e Barra de Pesquisa de Cartões */}
-      <div className="flex justify-between items-center mb-8 gap-5">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
         <div>
           <select 
             value={filterMode}
             onChange={(e) => setFilterMode(e.target.value)}
-            className="bg-bg-card border border-border-color text-text-primary px-4 py-2.5 rounded-xl outline-none text-[13px] font-semibold cursor-pointer min-width-[140px] hover:border-text-secondary transition-all duration-300"
+            className="w-full sm:w-auto bg-bg-card border border-border-color text-text-primary px-4 py-2.5 rounded-xl outline-none text-[13px] font-semibold cursor-pointer min-w-[140px] hover:border-text-secondary transition-all duration-300"
           >
             <option value="recent">Recentes</option>
             <option value="oldest">Antigos</option>
@@ -135,7 +135,7 @@ export default function LibraryView({
           </select>
         </div>
         
-        <div className="flex items-center bg-bg-app border border-border-color rounded-xl px-4 py-2.5 w-[320px]">
+        <div className="flex items-center bg-bg-app border border-border-color rounded-xl px-4 py-2.5 w-full sm:w-[320px]">
           <span className="material-symbols-outlined text-lg text-text-disabled mr-2.5">search</span>
           <input 
             type="text" 

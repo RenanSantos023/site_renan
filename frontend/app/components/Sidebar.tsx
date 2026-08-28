@@ -7,18 +7,29 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   dueCount: number;
   setSelectedFolder: (folder: string | null) => void;
+  sidebarOpen: boolean;
+  onClose: () => void;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, dueCount, setSelectedFolder }: SidebarProps) {
+export default function Sidebar({ activeTab, setActiveTab, dueCount, setSelectedFolder, sidebarOpen, onClose }: SidebarProps) {
   return (
-    <aside className="w-[250px] bg-bg-sidebar border-r border-border-color flex flex-col p-6 flex-shrink-0 z-10">
-      <div className="flex items-center gap-3 mb-8 pl-2">
-        <span className="material-symbols-outlined text-accent-blue text-3xl drop-shadow-[0_0_8px_rgba(63,140,251,0.4)]">
-          auto_awesome
-        </span>
-        <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-white via-white to-accent-blue bg-clip-text text-transparent">
-          UltraCards
-        </h1>
+    <aside className={`fixed inset-y-0 left-0 w-64 bg-bg-sidebar border-r border-border-color flex flex-col p-6 z-40 transform transition-transform duration-300 lg:translate-x-0 lg:static lg:w-[250px] lg:flex-shrink-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className="flex items-center justify-between mb-8 pl-2">
+        <div className="flex items-center gap-3">
+          <span className="material-symbols-outlined text-accent-blue text-3xl drop-shadow-[0_0_8px_rgba(63,140,251,0.4)]">
+            auto_awesome
+          </span>
+          <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-white via-white to-accent-blue bg-clip-text text-transparent">
+            UltraCards
+          </h1>
+        </div>
+        <button 
+          onClick={onClose}
+          className="lg:hidden p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-white/5 border-none cursor-pointer flex items-center justify-center"
+          title="Fechar menu"
+        >
+          <span className="material-symbols-outlined text-[20px]">close</span>
+        </button>
       </div>
 
       <nav className="flex-1 flex flex-col gap-5 overflow-y-auto">

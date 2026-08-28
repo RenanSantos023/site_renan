@@ -16,3 +16,4 @@ SaaS multi-tenant para criação, gerenciamento e estudo de flashcards com repet
 - **RNF-01:** O tempo de resposta para busca de cards do dia (`GET /study/due`) deve ser inferior a 150 ms.
 - **RNF-02:** Operação em regime 100% Serverless com custo $0,00 quando inativo.
 - **RNF-03:** Respostas de API maiores que 6 MB devem ser transferidas via S3 Presigned URL.
+- **RNF-04 (Compatibilidade Mobile):** A interface do usuário deve ser totalmente compatível com dispositivos móveis (Mobile-First), adaptando menus e flashcards responsivamente, incluindo suporte a botões de dimensões adequadas (mínimo de 44x44px para acessibilidade ao toque).
