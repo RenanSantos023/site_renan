@@ -35,7 +35,17 @@ saas-fsrs/
 ├── tests/                      # Suite de Testes
 │   ├── unit/                   # Testes das equações FSRS e entidades
 │   └── integration/            # Testes integrados com DynamoDB Local
-├── frontend/                   # Interface Gráfica (Web App)
+├── frontend/                       # Interface Gráfica Next.js 14+ (App Router)
+│   ├── amplify/                    # Recursos AWS Amplify Gen 2 (Schema e tipos)
+│   ├── app/                        # Diretório principal da aplicação Next.js
+│   │   ├── components/             # Componentes React (Sidebar, StudyView, etc.)
+│   │   ├── amplify-client.ts       # Inicializador do Data Client e Mock fallback
+│   │   ├── globals.css             # Estilos globais e customização de tema Tailwind
+│   │   └── page.tsx                # Server Component para SSR
+│   ├── utils/                      # Helper utilities
+│   │   └── fsrsMath.ts             # Algoritmo FSRS em TypeScript
+│   ├── amplify.yml                 # Pipeline de deploy e build da AWS Amplify
+│   └── tsconfig.json               # Configurações TypeScript strict
 ├── .gitignore
 ├── Makefile                    # Automação de comandos (build, test, deploy)
 └── requirements.txt
@@ -66,4 +76,4 @@ Pontos de entrada para cada AWS Lambda.
 Contém a declaração dos recursos de nuvem (DynamoDB, Lambdas, API Gateway, IAM Roles e Cognito User Pools) utilizando AWS SAM (`template.yaml`).
 
 ### F. Interface (`frontend/`)
-Módulo isolado para o desenvolvimento do Web App. Pode ser implantado em buckets S3 estáticos e distribuído via CloudFront sem interferir no ciclo de deploy do backend.
+Web App desenvolvido em Next.js 14+ (App Router) e TypeScript strict. A aplicação utiliza o AWS Amplify Gen 2 para integrar com AWS Cognito e DynamoDB. Possui fallback offline inteligente (localStorage) e é hospedada no AWS Amplify Console com suporte a SSR e CI/CD nativo.

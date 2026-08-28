@@ -1,7 +1,7 @@
 # 02 - Arquitetura de Infraestrutura (AWS Serverless)
 
 ## 1. Topologia de Componentes
-- **Frontend Delivery:** Amazon S3 (estático) + Amazon CloudFront (CDN com SSL via ACM).
+- **Frontend Delivery:** AWS Amplify Console (hospedagem gerenciada Next.js App Router com SSR/CI-CD nativo).
 - **Identity Provider:** Amazon Cognito User Pools (Tokens JWT).
 - **API Gateway:** Amazon API Gateway (HTTP API v2) integrado com JWT Authorizer nativo.
 - **Compute Layer:** AWS Lambda (Python 3.12, arquitetura arm64/Graviton2).
