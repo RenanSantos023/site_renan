@@ -24,17 +24,63 @@ export default function StudyView({
   const [studyQueue, setStudyQueue] = useState<Card[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isFlipped, setIsFlipped] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
 
   // Carregar fila de cartões ao iniciar
   useEffect(() => {
-    if (singleCardId) {
-      const single = cards.find(c => c.cardId === singleCardId);
-      if (single) setStudyQueue([single]);
-    } else {
-      const now = new Date();
-      const due = cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now);
-      setStudyQueue(due);
-    }
+    const loadQueue = async () => {
+      if (singleCardId) {
+        const single = cards.find(c => c.cardId === singleCardId);
+        if (single) setStudyQueue([single]);
+        return;
+      }
+
+      const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
+      const apiUrl = localStorage.getItem("ultra_api_url") || "";
+      const userId = localStorage.getItem("ultra_user_id") || "usr_dev_default";
+
+      if (apiMode === "aws" && apiUrl) {
+        setLoading(true);
+        try {
+          const response = await fetch(`${apiUrl}/study/due?limit=50`, {
+            headers: {
+              "Authorization": "Bearer SIMULATED_TOKEN",
+              "X-User-Id": userId
+            }
+          });
+          if (!response.ok) throw new Error();
+          const result = await response.json();
+          const mappedCards: Card[] = (result.cards || []).map((c: any) => ({
+            cardId: c.card_id,
+            noteId: c.note_id,
+            deckId: c.deck_id,
+            cardOrdinal: c.card_ordinal,
+            state: c.state,
+            stability: c.stability,
+            difficulty: c.difficulty,
+            dueDate: c.due_date,
+            lastReviewDate: c.last_review_date,
+            scheduledDays: c.scheduled_days,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at
+          }));
+          setStudyQueue(mappedCards);
+        } catch (e) {
+          showToast("Erro ao carregar fila do Lambda. Usando dados locais.", "error");
+          const now = new Date();
+          const due = cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now);
+          setStudyQueue(due);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        const now = new Date();
+        const due = cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now);
+        setStudyQueue(due);
+      }
+    };
+
+    loadQueue();
     setCurrentIndex(0);
     setIsFlipped(false);
   }, [cards, singleCardId]);
@@ -169,6 +215,16 @@ export default function StudyView({
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   };
+
+  // Renderizar o conteúdo
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 bg-bg-card border border-border-color rounded-2xl max-w-2xl mx-auto text-center gap-6 mt-8">
+        <span className="material-symbols-outlined text-6xl text-accent-blue animate-spin">autorenew</span>
+        <h2 className="text-xl font-bold">Carregando fila de estudos...</h2>
+      </div>
+    );
+  }
 
   // Renderizar o conteúdo
   if (studyQueue.length === 0 || currentIndex >= studyQueue.length) {

@@ -148,8 +148,34 @@ export default function CreateNoteView({ showToast, onCreateNote, onCancel }: Cr
 
         if (!response.ok) throw new Error();
         const result = await response.json();
-        onCreateNote(result.note, result.cards);
-        saveNoteLocally(result.note, result.cards);
+        
+        // Converter chaves snake_case da API Python para camelCase do TypeScript/Next.js
+        const noteMapped: Note = {
+          noteId: result.note.note_id,
+          deckId: result.note.deck_id,
+          noteType: result.note.note_type,
+          fields: result.note.fields,
+          tags: result.note.tags,
+          createdAt: result.note.created_at,
+          updatedAt: result.note.updated_at
+        };
+        const cardsMapped: Card[] = (result.cards || []).map((c: any) => ({
+          cardId: c.card_id,
+          noteId: c.note_id,
+          deckId: c.deck_id,
+          cardOrdinal: c.card_ordinal,
+          state: c.state,
+          stability: c.stability,
+          difficulty: c.difficulty,
+          dueDate: c.due_date,
+          lastReviewDate: c.last_review_date,
+          scheduledDays: c.scheduled_days,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at
+        }));
+
+        onCreateNote(noteMapped, cardsMapped);
+        saveNoteLocally(noteMapped, cardsMapped);
       } catch (err) {
         showToast("Falha de rede com Lambda. Salvando localmente.", "error");
         onCreateNote(newNote, derivedCards);
