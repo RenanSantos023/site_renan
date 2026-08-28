@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-app: #0a091d;
+  --color-bg-sidebar: #0f0e26;
+  --color-bg-card: #181635;
+  --color-bg-card-hover: #22204c;
+  --color-bg-input: #12102e;
+  --color-bg-input-focus: #18153c;
+  
+  --color-accent-blue: #3f8cfb;
+  --color-accent-yellow: #ffcd1f;
+  
+  --color-text-primary: #f6f7fb;
+  --color-text-secondary: #939bb4;
+  --color-text-disabled: #4e5569;
+  
+  --color-again: #ff4a5a;
+  --color-hard: #ff9800;
+  --color-good: #3f8cfb;
+  --color-easy: #2ec866;
+
+  --animate-spin-slow: spin 3s linear infinite;
+}
+
+/* Custom Base Style Overrides */
+body {
+  background-color: #0a091d;
+  color: #f6f7fb;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* SCROLLBAR STYLING */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #242247;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #4e5569;
+}
+
+/* 3D FLASHCARD PERSPECTIVE */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Animations */
+@keyframes slideIn {
+  from {
+      transform: translateX(120%);
+      opacity: 0;
+  }
+  to {
+      transform: translateX(0);
+      opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.cloze-obscured {
+  background-color: rgba(63, 140, 251, 0.2);
+  border: 1px dashed var(--color-accent-blue);
+  color: var(--color-accent-blue);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.cloze-revealed {
+  color: var(--color-accent-yellow);
+  font-weight: 700;
+  text-decoration: underline;
+}
