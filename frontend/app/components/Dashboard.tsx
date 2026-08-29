@@ -12,7 +12,7 @@ import SettingsView from "./SettingsView";
 import AuthView from "./AuthView";
 import ToastContainer, { Toast } from "./Toast";
 import type { Note, Card } from "../../amplify/data/resource";
-import { getAmplifyClient, getCurrentAuthenticatedUser, signOutUser } from "../amplify-client";
+import { getAmplifyClient, getCurrentAuthenticatedUser, signOutUser, getAuthSessionToken } from "../amplify-client";
 
 interface DashboardProps {
   initialNotes: Note[];
@@ -67,27 +67,21 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
     checkAuthStatus();
   }, []);
 
-  // Carregar dados salvos no LocalStorage (modo Mock) ou da AWS ao montar/mudar de aba
+  // Carregar dados salvos no LocalStorage (modo Mock) ou do backend ao montar/mudar de aba
   useEffect(() => {
     if (authChecking) return;
 
-    const isMock = localStorage.getItem("ultra_api_mode") !== "aws";
-    if (isMock) {
-      const storedNotes = localStorage.getItem("ultra_notes");
-      const storedCards = localStorage.getItem("ultra_cards");
-      if (storedNotes) setNotes(JSON.parse(storedNotes));
-      if (storedCards) setCards(JSON.parse(storedCards));
-    } else if (isAuthenticated) {
-      const client = getAmplifyClient() as any;
-      Promise.all([
-        client.models.Note.list(),
-        client.models.Card.list()
-      ]).then(([notesRes, cardsRes]) => {
-        if (notesRes.data) setNotes(notesRes.data);
-        if (cardsRes.data) setCards(cardsRes.data);
-      }).catch(() => {
-        showToast("Falha ao carregar dados do AWS Amplify, usando mock.", "error");
-      });
+    const storedNotes = localStorage.getItem("ultra_notes");
+    const storedCards = localStorage.getItem("ultra_cards");
+    if (storedNotes) {
+      try {
+        setNotes(JSON.parse(storedNotes));
+      } catch {}
+    }
+    if (storedCards) {
+      try {
+        setCards(JSON.parse(storedCards));
+      } catch {}
     }
   }, [activeTab, authChecking, isAuthenticated]);
 
@@ -131,7 +125,8 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
     return cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now).length;
   };
 
-  const handleCreateNotesBatch = (newNotes: Note[], newCards: Card[]) => {
+  const handleCreateNotesBatch = async (newNotes: Note[], newCards: Card[]) => {
+    // 1. Atualização otimista no estado e LocalStorage
     setNotes(prev => {
       const updated = [...prev, ...newNotes];
       localStorage.setItem("ultra_notes", JSON.stringify(updated));
@@ -142,10 +137,44 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
       localStorage.setItem("ultra_cards", JSON.stringify(updated));
       return updated;
     });
+
+    // 2. Se estiver no modo AWS, sincronizar via API REST (DynamoDB AnkiSaaS-dev)
+    const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
+    const apiUrl = localStorage.getItem("ultra_api_url") || "";
+    if (apiMode === "aws" && apiUrl) {
+      try {
+        const token = await getAuthSessionToken();
+        const payload = {
+          notes: newNotes.map(n => ({
+            deck_id: n.deckId,
+            note_type: n.noteType || "BASIC",
+            fields: n.fields,
+            tags: n.tags || []
+          }))
+        };
+        const res = await fetch(`${apiUrl}/notes/batch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": token ? `Bearer ${token}` : ""
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          showToast("Cartões persistidos com sucesso na tabela DynamoDB da AWS!", "success");
+        } else {
+          console.warn("Aviso ao salvar no DynamoDB:", await res.text());
+        }
+      } catch (err) {
+        console.error("Erro de comunicação com a API AWS:", err);
+      }
+    }
+
     setActiveTab("decks");
   };
 
-  const handleReviewCardLocal = (cardId: string, updatedCardData: Partial<Card>) => {
+  const handleReviewCardLocal = async (cardId: string, updatedCardData: Partial<Card>) => {
     setCards(prev => {
       const updated = prev.map(c => c.cardId === cardId ? { ...c, ...updatedCardData } as Card : c);
       localStorage.setItem("ultra_cards", JSON.stringify(updated));
@@ -153,7 +182,7 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
     });
   };
 
-  const handleDeleteNote = (noteId: string) => {
+  const handleDeleteNote = async (noteId: string) => {
     setNotes(prev => {
       const updated = prev.filter(n => n.noteId !== noteId);
       localStorage.setItem("ultra_notes", JSON.stringify(updated));

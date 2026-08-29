@@ -70,6 +70,21 @@ export default function AuthView({ onAuthSuccess, onSwitchToOffline, showToast }
       return;
     }
 
+    if (!/[a-z]/.test(password)) {
+      setErrorMessage('A senha deve conter pelo menos uma letra minúscula (a-z).');
+      return;
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      setErrorMessage('A senha deve conter pelo menos uma letra maiúscula (A-Z).');
+      return;
+    }
+
+    if (!/[0-9]/.test(password)) {
+      setErrorMessage('A senha deve conter pelo menos um número (0-9).');
+      return;
+    }
+
     setLoading(true);
     try {
       const output = await signUpUser(email, password);
@@ -229,12 +244,15 @@ export default function AuthView({ onAuthSuccess, onSwitchToOffline, showToast }
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary">Senha (mín. 8 caracteres)</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-text-secondary">Senha</label>
+                <span className="text-[10px] text-text-secondary opacity-75">mín. 8 caracteres (A-Z, a-z, 0-9)</span>
+              </div>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Ex: MinhaSenha123"
                 required
                 className="w-full bg-bg-input border border-border-color rounded-xl px-4 py-3 text-sm text-text-primary outline-none focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-200"
               />

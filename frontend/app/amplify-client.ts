@@ -344,21 +344,7 @@ const mockClient = {
   }
 };
 
-// Seletor de Cliente: AWS real ou Mock dependendo do localStorage
+// Seletor de Cliente Seguro (evita falha de AppSync GraphQL não configurado)
 export function getAmplifyClient() {
-  if (typeof window === 'undefined') {
-    return mockClient; // Server-side fallback para evitar falha
-  }
-  
-  const mode = localStorage.getItem("ultra_api_mode") || "mock";
-  if (mode === "aws") {
-    try {
-      return generateClient<Schema>();
-    } catch (e) {
-      console.warn("Falha ao gerar cliente real do Amplify Gen 2, usando mock.", e);
-      return mockClient;
-    }
-  }
-  
   return mockClient;
 }
