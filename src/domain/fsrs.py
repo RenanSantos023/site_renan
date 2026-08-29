@@ -1,6 +1,7 @@
 """
 FSRS v4.5 (Free Spaced Repetition Scheduler) Core Engine.
 Pure Python implementation of the FSRS algorithm for spaced repetition scheduling.
+Supports 5 card states: NEW, LEARNING, REVIEW, DIFFICULT, MASTERED.
 """
 
 from datetime import datetime, timezone, timedelta
@@ -17,6 +18,31 @@ DEFAULT_WEIGHTS = [
 ]
 
 DEFAULT_R_TARGET = 0.90  # Desired retention: 90%
+
+
+def classify_card_state(
+    stability: float,
+    difficulty: float,
+    scheduled_days: int,
+    base_state: str = "REVIEW"
+) -> str:
+    """
+    Classifies the high-level operational state of a card for Analytics/UI:
+    - NEW: stability == 0 or base_state == "NEW"
+    - MASTERED: stability > 15.0 or (base_state == "REVIEW" and scheduled_days > 21)
+    - DIFFICULT: difficulty >= 7.5 and stability <= 15.0
+    - LEARNING: base_state == "LEARNING"
+    - REVIEW: default mature review
+    """
+    if base_state == "NEW" or stability <= 0.0:
+        return "NEW"
+    if stability > 15.0 or (base_state == "REVIEW" and scheduled_days > 21):
+        return "MASTERED"
+    if difficulty >= 7.5:
+        return "DIFFICULT"
+    if base_state == "LEARNING":
+        return "LEARNING"
+    return "REVIEW"
 
 
 def calculate_retrievability(t_days: float, stability: float) -> float:
@@ -154,7 +180,7 @@ def process_fsrs(
     if state == "NEW" or current_stability <= 0.0:
         new_s = initial_stability(rating, weights)
         new_d = initial_difficulty(rating, weights)
-        new_state = "REVIEW" if rating > 1 else "LEARNING"
+        final_state = "REVIEW" if rating > 1 else "LEARNING"
     else:
         # 2. Cards in Ongoing Review
         last_review_str = card.get("last_review_date") or card.get("created_at")
@@ -171,10 +197,10 @@ def process_fsrs(
 
         if rating == 1:  # Errou (Lapse)
             new_s = next_forget_stability(new_d, current_stability, r, weights)
-            new_state = "LEARNING"
+            final_state = "LEARNING"
         else:  # Acertou (Recall: 2=Hard, 3=Good, 4=Easy)
             new_s = next_recall_stability(new_d, current_stability, r, rating, weights)
-            new_state = "REVIEW"
+            final_state = "REVIEW"
 
     # 3. Scheduling next review
     interval_days = calculate_next_interval(new_s, r_target)
@@ -183,7 +209,7 @@ def process_fsrs(
     return {
         "stability": round(new_s, 4),
         "difficulty": round(new_d, 4),
-        "state": new_state,
+        "state": final_state,
         "last_review_date": now.isoformat(),
         "due_date": due_date.isoformat(),
         "scheduled_days": interval_days,

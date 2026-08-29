@@ -1,5 +1,6 @@
 """
 AWS Lambda Handler: GetDueCardsFunction (GET /study/due)
+Supports pagination and filtering by deck_id.
 """
 
 import base64
@@ -50,6 +51,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
             return error_response("Unauthorized: User ID could not be identified", status_code=401)
 
         query_params = event.get("queryStringParameters") or {}
+        deck_id = query_params.get("deck_id")
         limit_param = query_params.get("limit", "50")
         try:
             limit = int(limit_param)
@@ -66,6 +68,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
         cards, last_evaluated_key = repo.get_due_cards(
             user_id=user_id,
             current_time_iso=now_iso,
+            deck_id=deck_id,
             limit=limit,
             exclusive_start_key=exclusive_start_key,
         )

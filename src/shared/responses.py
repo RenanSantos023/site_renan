@@ -30,7 +30,7 @@ class CustomJSONEncoder(json.JSONEncoder):
 CORS_HEADERS = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Amz-Date,X-Api-Key,X-Amz-Security-Token",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-User-Id",
     "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
 }
 
@@ -47,6 +47,10 @@ def build_response(status_code: int, body: Any, extra_headers: Optional[Dict[str
 
 def success_response(data: Any, status_code: int = 200) -> Dict[str, Any]:
     return build_response(status_code=status_code, body=data)
+
+
+def bad_request_response(message: str, details: Optional[Any] = None) -> Dict[str, Any]:
+    return error_response(message=message, status_code=400, details=details)
 
 
 def error_response(message: str, status_code: int = 400, details: Optional[Any] = None) -> Dict[str, Any]:

@@ -1,13 +1,14 @@
 """
-Domain models for Flashcards SaaS (Note, Card, Review, Enums).
+Domain models for Flashcards SaaS (Note, Card, Review, Enums, Batch, Decks, Preferences).
 """
 
 from enum import Enum, IntEnum
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
+
+from domain.cloze_parser import extract_cloze_numbers, render_cloze_card
 
 
 class NoteType(str, Enum):
@@ -22,6 +23,8 @@ class CardState(str, Enum):
     NEW = "NEW"
     LEARNING = "LEARNING"
     REVIEW = "REVIEW"
+    DIFFICULT = "DIFFICULT"
+    MASTERED = "MASTERED"
 
 
 class Rating(IntEnum):
@@ -46,6 +49,10 @@ class NoteCreateRequest(BaseModel):
     note_type: NoteType = NoteType.BASIC
     fields: Dict[str, str]
     tags: List[str] = Field(default_factory=list)
+
+
+class BatchNoteCreateRequest(BaseModel):
+    notes: List[NoteCreateRequest]
 
 
 class Note(BaseModel):
@@ -84,16 +91,35 @@ class ReviewRequest(BaseModel):
 class ReviewResponse(BaseModel):
     card_id: str
     state: str
+    stability: float
+    difficulty: float
     next_review: str
     interval_days: int
 
 
-CLOZE_PATTERN = re.compile(r"\{\{c(\d+)::(.*?)\}\}")
+class DeckMetadata(BaseModel):
+    user_id: str
+    deck_id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    is_favorite: bool = False
+    tags: List[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=current_iso_time)
+    updated_at: str = Field(default_factory=current_iso_time)
+
+
+class UserPreferences(BaseModel):
+    user_id: str
+    daily_goal: int = 20
+    desired_retention: float = 0.90
+    max_interval_days: int = 36500
+    language: str = "pt-BR"
+    updated_at: str = Field(default_factory=current_iso_time)
 
 
 def generate_cards_from_note(note: Note, now_iso: Optional[str] = None) -> List[Card]:
     """
-    Business Rule RN-02: Generates 1 to N derived cards from a Note based on note_type.
+    Business Rule: Generates 1 to N derived cards from a Note based on note_type.
     All cards start in NEW state with stability=0 and difficulty=0.
     """
     timestamp = now_iso or current_iso_time()
@@ -154,14 +180,14 @@ def generate_cards_from_note(note: Note, now_iso: Optional[str] = None) -> List[
         # Find all cloze markers like {{c1::...}}, {{c2::...}}
         cloze_numbers = set()
         for field_val in note.fields.values():
-            matches = CLOZE_PATTERN.findall(field_val)
-            for match in matches:
-                cloze_numbers.add(int(match[0]))
+            numbers = extract_cloze_numbers(field_val)
+            for n in numbers:
+                cloze_numbers.add(n)
 
         if not cloze_numbers:
             cloze_numbers.add(1)
 
-        for ordinal, cloze_idx in enumerate(sorted(cloze_numbers)):
+        for ordinal, _ in enumerate(sorted(cloze_numbers)):
             cards.append(
                 Card(
                     user_id=note.user_id,

@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  ultra-flashcards - MVP FSRS Engine Serverless Infrastructure
+  ultra-flashcards - Full Serverless Engine & Generative AI Infrastructure
 
 Globals:
   Function:
-    Timeout: 10
+    Timeout: 15
     MemorySize: 256
     Runtime: python3.12
     Architectures:
@@ -13,6 +13,7 @@ Globals:
     Environment:
       Variables:
         TABLE_NAME: !Ref AnkiSaaSTable
+        DOCUMENTS_BUCKET: !Ref DocumentsBucket
         POWERTOOLS_SERVICE_NAME: fsrs-engine
         LOG_LEVEL: INFO
 
@@ -65,6 +66,29 @@ Resources:
         PointInTimeRecoveryEnabled: true
       SSESpecification:
         SSEEnabled: true
+
+  # =========================================================================
+  # S3 Bucket for Document Uploads & OCR
+  # =========================================================================
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'ultra-flashcards-docs-${Stage}-${AWS::AccountId}'
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+
+  # =========================================================================
+  # SQS Queue for Asynchronous Document Extraction
+  # =========================================================================
+  DocumentProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'ultra-flashcards-doc-queue-${Stage}'
+      VisibilityTimeout: 90
 
   # =========================================================================
   # Cognito Authentication - User Pool & Client
@@ -130,14 +154,14 @@ Resources:
               Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}'
 
   # =========================================================================
-  # Lambda Functions
+  # Lambda Functions - Fase 1: Criação
   # =========================================================================
   CreateNoteFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.create_note.lambda_handler
       CodeUri: ../src/
-      Description: Cria notas e gera cartões derivados em estado NEW
+      Description: Cria notas e gera cartões derivados
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref AnkiSaaSTable
@@ -149,12 +173,89 @@ Resources:
             Path: /notes
             Method: POST
 
+  BatchCreateNotesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.batch_create_notes.lambda_handler
+      CodeUri: ../src/
+      Description: Criação em lote de notas e cartões (JSON, CSV, Cloze)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        BatchCreateNotes:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /notes/batch
+            Method: POST
+
+  AiGenerateCardsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.ai_generate_cards.lambda_handler
+      CodeUri: ../src/
+      Description: Mineração síncrona com Amazon Bedrock (Quick Start, Texto, Links, YouTube)
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+      Events:
+        GenerateCards:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /ai/generate-cards
+            Method: POST
+        ScrapeLink:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /ai/scrape-link
+            Method: POST
+        YoutubeTranscript:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /ai/youtube-transcript
+            Method: POST
+
+  DocumentProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.document_processor.lambda_handler
+      CodeUri: ../src/
+      Description: Upload de documentos via S3 presigned URL e consulta de jobs
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Sub 'ultra-flashcards-docs-${Stage}-${AWS::AccountId}'
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        GetPresignedUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /documents/presigned-url
+            Method: POST
+        GetJobStatus:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /documents/jobs/{jobId}
+            Method: GET
+
+  # =========================================================================
+  # Lambda Functions - Fase 2: Estudo
+  # =========================================================================
   GetDueCardsFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.get_due_cards.lambda_handler
       CodeUri: ../src/
-      Description: Consulta cartões vencidos ou prontos para estudo via GSI1
+      Description: Consulta cartões vencidos com paginação e filtro de deck
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref AnkiSaaSTable
@@ -171,7 +272,7 @@ Resources:
     Properties:
       Handler: handlers.process_review.lambda_handler
       CodeUri: ../src/
-      Description: Processa a revisão do cartão com o algoritmo FSRS v4.5 e atualiza estado no DynamoDB
+      Description: Processa revisão com FSRS v4.5 e registra histórico de logs
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref AnkiSaaSTable
@@ -182,6 +283,148 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /study/review
             Method: POST
+
+  AiStudyTutorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.ai_study_tutor.lambda_handler
+      CodeUri: ../src/
+      Description: Tutor IA, avaliação de resposta aberta, quiz e savepoints
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+      Events:
+        EvaluateAnswer:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/evaluate-answer
+            Method: POST
+        AiAction:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/ai-action
+            Method: POST
+        GenerateQuiz:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/generate-quiz
+            Method: POST
+        AdaptiveSuggestions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/adaptive-suggestions
+            Method: POST
+        PostSavepoint:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/session-savepoint
+            Method: POST
+        GetSavepoint:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /study/session-savepoint
+            Method: GET
+
+  # =========================================================================
+  # Lambda Functions - Fase 3: Analytics & Gestão
+  # =========================================================================
+  AnalyticsSummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.analytics_summary.lambda_handler
+      CodeUri: ../src/
+      Description: Cálculo de streak diário, heatmap, acurácia e weak topics
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        GetAnalyticsSummary:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /analytics/summary
+            Method: GET
+
+  ManageDecksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.manage_decks.lambda_handler
+      CodeUri: ../src/
+      Description: CRUD completo de decks, métricas consolidadas e compartilhamento
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        GetDecks:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /decks
+            Method: GET
+        CreateDeck:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /decks
+            Method: POST
+        UpdateDeck:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /decks/{deckId}
+            Method: PUT
+        DeleteDeck:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /decks/{deckId}
+            Method: DELETE
+        ShareDeck:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /decks/{deckId}/share
+            Method: POST
+        ImportSharedDeck:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /decks/import-shared
+            Method: POST
+
+  UserPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.user_preferences.lambda_handler
+      CodeUri: ../src/
+      Description: Preferências do usuário e parâmetros do algoritmo FSRS
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnkiSaaSTable
+      Events:
+        GetPreferences:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /user/preferences
+            Method: GET
+        UpdatePreferences:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /user/preferences
+            Method: PUT
 
 Outputs:
   HttpApiUrl:

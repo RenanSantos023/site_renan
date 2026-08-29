@@ -1,6 +1,7 @@
 """
 AWS Lambda Handler: ProcessReviewFunction (POST /study/review)
-Integrates FSRS v4.5 algorithm to update card state, stability, difficulty, and next due date.
+Integrates FSRS v4.5 algorithm to update card state, stability, difficulty, next due date,
+and records review log for Streak/Analytics.
 """
 
 import json
@@ -64,6 +65,20 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
         if not updated_card:
             return error_response("Failed to update card review", status_code=500)
+
+        # Record Review Log for Analytics & Streak
+        repo.save_review_log(
+            user_id=user_id,
+            card_id=req.card_id,
+            log_data={
+                "deck_id": updated_card.deck_id,
+                "rating": req.rating.value,
+                "review_time_ms": req.review_time_ms or 0,
+                "stability": updated_card.stability,
+                "difficulty": updated_card.difficulty,
+                "timestamp": fsrs_result["last_review_date"],
+            },
+        )
 
         response_payload = {
             "card_id": updated_card.card_id,
