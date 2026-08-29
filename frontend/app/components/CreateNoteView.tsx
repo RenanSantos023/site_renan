@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import type { Note, Card } from "../../amplify/data/resource";
+import { getAuthSessionToken } from "../amplify-client";
 
 const noteSchema = z.object({
   deckId: z.string().min(2, "O baralho deve ter pelo menos 2 caracteres."),
@@ -131,11 +132,12 @@ export default function CreateNoteView({ showToast, onCreateNote, onCancel }: Cr
 
     if (apiMode === "aws" && apiUrl) {
       try {
+        const token = await getAuthSessionToken();
         const response = await fetch(`${apiUrl}/notes`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer SIMULATED_TOKEN",
+            "Authorization": token ? `Bearer ${token}` : "Bearer SIMULATED_TOKEN",
             "X-User-Id": userId
           },
           body: JSON.stringify({

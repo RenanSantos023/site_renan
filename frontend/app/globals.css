@@ -1,26 +1,30 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-app: #0a091d;
-  --color-bg-sidebar: #0f0e26;
-  --color-bg-card: #181635;
-  --color-bg-card-hover: #22204c;
-  --color-bg-input: #12102e;
+  --color-bg-app: #09081a;
+  --color-bg-sidebar: #0f0d26;
+  --color-bg-card: #151333;
+  --color-bg-card-hover: #1f1b47;
+  --color-bg-input: #100e28;
   --color-bg-input-focus: #18153c;
+  --color-border-color: #262252;
   
   --color-accent-blue: #3f8cfb;
+  --color-accent-purple: #8b5cf6;
+  --color-accent-purple-dark: #7c3aed;
   --color-accent-yellow: #ffcd1f;
   
   --color-text-primary: #f6f7fb;
-  --color-text-secondary: #939bb4;
-  --color-text-disabled: #4e5569;
+  --color-text-secondary: #9aa3c0;
+  --color-text-disabled: #555e78;
   
   --color-again: #ff4a5a;
   --color-hard: #ff9800;
   --color-good: #3f8cfb;
-  --color-easy: #2ec866;
+  --color-easy: #22c55e;
 
   --animate-spin-slow: spin 3s linear infinite;
+  --animate-pulse-subtle: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* Custom Base Style Overrides */

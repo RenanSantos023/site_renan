@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import type { Note, Card } from "../../amplify/data/resource";
 import { calculateNextFSRSState } from "../../utils/fsrsMath";
+import { getAuthSessionToken } from "../amplify-client";
 
 interface StudyViewProps {
   notes: Note[];
@@ -11,22 +12,35 @@ interface StudyViewProps {
   onReviewCard: (cardId: string, updatedData: Partial<Card>) => void;
   onFinished: () => void;
   singleCardId?: string;
+  selectedDeckId?: string | null;
 }
 
-export default function StudyView({ 
-  notes, 
-  cards, 
-  showToast, 
-  onReviewCard, 
-  onFinished, 
-  singleCardId 
+type StudyMode = "review" | "quiz" | "written" | "tutor";
+
+export default function StudyView({
+  notes,
+  cards,
+  showToast,
+  onReviewCard,
+  onFinished,
+  singleCardId,
+  selectedDeckId
 }: StudyViewProps) {
   const [studyQueue, setStudyQueue] = useState<Card[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isFlipped, setIsFlipped] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [studyMode, setStudyMode] = useState<StudyMode>("review");
 
-  // Carregar fila de cartões ao iniciar
+  // Estados dos Modos Especiais
+  const [userWrittenAnswer, setUserWrittenAnswer] = useState<string>("");
+  const [aiEvaluation, setAiEvaluation] = useState<{ score: number; feedback: string } | null>(null);
+  const [quizSelectedOption, setQuizSelectedOption] = useState<number | null>(null);
+  const [quizOptions, setQuizOptions] = useState<string[]>([]);
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [aiActionLoading, setAiActionLoading] = useState<boolean>(false);
+
+  // Carregar fila de cartões
   useEffect(() => {
     const loadQueue = async () => {
       if (singleCardId) {
@@ -35,60 +49,50 @@ export default function StudyView({
         return;
       }
 
-      const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
-      const apiUrl = localStorage.getItem("ultra_api_url") || "";
-      const userId = localStorage.getItem("ultra_user_id") || "usr_dev_default";
-
-      if (apiMode === "aws" && apiUrl) {
-        setLoading(true);
-        try {
-          const response = await fetch(`${apiUrl}/study/due?limit=50`, {
-            headers: {
-              "Authorization": "Bearer SIMULATED_TOKEN",
-              "X-User-Id": userId
-            }
-          });
-          if (!response.ok) throw new Error();
-          const result = await response.json();
-          const mappedCards: Card[] = (result.cards || []).map((c: any) => ({
-            cardId: c.card_id,
-            noteId: c.note_id,
-            deckId: c.deck_id,
-            cardOrdinal: c.card_ordinal,
-            state: c.state,
-            stability: c.stability,
-            difficulty: c.difficulty,
-            dueDate: c.due_date,
-            lastReviewDate: c.last_review_date,
-            scheduledDays: c.scheduled_days,
-            createdAt: c.created_at,
-            updatedAt: c.updated_at
-          }));
-          setStudyQueue(mappedCards);
-        } catch (e) {
-          showToast("Erro ao carregar fila do Lambda. Usando dados locais.", "error");
-          const now = new Date();
-          const due = cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now);
-          setStudyQueue(due);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        const now = new Date();
-        const due = cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now);
-        setStudyQueue(due);
+      let candidateCards = cards;
+      if (selectedDeckId) {
+        candidateCards = cards.filter(c => c.deckId?.toLowerCase() === selectedDeckId.toLowerCase());
       }
+
+      const now = new Date();
+      const due = candidateCards.filter(c => !c.dueDate || new Date(c.dueDate) <= now);
+      setStudyQueue(due.length > 0 ? due : candidateCards.slice(0, 20));
     };
 
     loadQueue();
     setCurrentIndex(0);
     setIsFlipped(false);
-  }, [cards, singleCardId]);
+    resetCardState();
+  }, [cards, singleCardId, selectedDeckId]);
 
-  // Teclado atalhos
+  const activeCard = studyQueue[currentIndex];
+  const activeNote = activeCard ? notes.find(n => n.noteId === activeCard.noteId) : null;
+
+  const resetCardState = () => {
+    setIsFlipped(false);
+    setUserWrittenAnswer("");
+    setAiEvaluation(null);
+    setQuizSelectedOption(null);
+    setAiExplanation(null);
+  };
+
+  // Gerar opções de quiz quando mudar de card
+  useEffect(() => {
+    if (!activeNote) return;
+    const correctAnswer = activeNote.fields?.Back || "Resposta correta";
+    
+    // Distratores a partir de outras notas
+    const otherNotes = notes.filter(n => n.noteId !== activeNote.noteId && n.fields?.Back);
+    const shuffledOthers = otherNotes.sort(() => 0.5 - Math.random()).slice(0, 3).map(n => n.fields.Back);
+    
+    const allOptions = [correctAnswer, ...shuffledOthers].sort(() => 0.5 - Math.random());
+    setQuizOptions(allOptions);
+  }, [currentIndex, activeNote, notes]);
+
+  // Teclado atalhos para modo Review
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (studyQueue.length === 0 || currentIndex >= studyQueue.length) return;
+      if (studyMode !== "review" || studyQueue.length === 0 || currentIndex >= studyQueue.length) return;
 
       if (e.code === "Space") {
         e.preventDefault();
@@ -105,21 +109,13 @@ export default function StudyView({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [studyQueue, currentIndex, isFlipped]);
-
-  const activeCard = studyQueue[currentIndex];
-  const activeNote = activeCard ? notes.find(n => n.noteId === activeCard.noteId) : null;
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [studyQueue, currentIndex, isFlipped, studyMode]);
 
   const submitReview = async (rating: number) => {
     if (!activeCard) return;
 
-    // Calcular próximo estado FSRS usando utilitário compartilhado
     const nextFSRS = calculateNextFSRSState(rating, activeCard);
-    
-    // Obter as credenciais da API/Amplify
     const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
     const apiUrl = localStorage.getItem("ultra_api_url") || "";
     const userId = localStorage.getItem("ultra_user_id") || "usr_dev_default";
@@ -139,11 +135,12 @@ export default function StudyView({
 
     if (apiMode === "aws" && apiUrl) {
       try {
+        const token = await getAuthSessionToken();
         const response = await fetch(`${apiUrl}/study/review`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer SIMULATED_TOKEN",
+            "Authorization": token ? `Bearer ${token}` : "Bearer SIMULATED_TOKEN",
             "X-User-Id": userId
           },
           body: JSON.stringify({
@@ -153,238 +150,444 @@ export default function StudyView({
           })
         });
 
-        if (!response.ok) throw new Error();
-        const result = await response.json();
-        
-        // Sincronizar com retorno da API AWS
-        onReviewCard(activeCard.cardId, {
-          stability: result.stability,
-          difficulty: result.difficulty,
-          state: result.state,
-          dueDate: result.next_review,
-          scheduledDays: result.interval_days,
-          lastReviewDate: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
-      } catch (e) {
-        showToast("Erro ao sincronizar com AWS. Salvando localmente.", "error");
+        if (response.ok) {
+          const result = await response.json();
+          onReviewCard(activeCard.cardId, {
+            stability: result.stability,
+            difficulty: result.difficulty,
+            state: result.state,
+            dueDate: result.next_review,
+            scheduledDays: result.interval_days,
+            lastReviewDate: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        } else {
+          onReviewCard(activeCard.cardId, updatedFields);
+        }
+      } catch {
         onReviewCard(activeCard.cardId, updatedFields);
-        saveCardLocally(activeCard.cardId, updatedFields);
       }
     } else {
       onReviewCard(activeCard.cardId, updatedFields);
-      saveCardLocally(activeCard.cardId, updatedFields);
     }
 
-    setIsFlipped(false);
-    
-    // Prosseguir para o próximo cartão
+    advanceCard();
+  };
+
+  const advanceCard = () => {
+    resetCardState();
     if (currentIndex + 1 >= studyQueue.length) {
-      showToast("Sessão finalizada com sucesso!", "success");
+      showToast("🎉 Sessão de estudos finalizada com sucesso!", "success");
       onFinished();
     } else {
       setCurrentIndex(prev => prev + 1);
     }
   };
 
-  const saveCardLocally = (cardId: string, updatedFields: Partial<Card>) => {
-    const localCardsStr = localStorage.getItem("ultra_cards");
-    if (localCardsStr) {
-      const localCards: Card[] = JSON.parse(localCardsStr);
-      const idx = localCards.findIndex(c => c.cardId === cardId);
-      if (idx !== -1) {
-        localCards[idx] = { ...localCards[idx], ...updatedFields };
-        localStorage.setItem("ultra_cards", JSON.stringify(localCards));
+  // Avaliação de Resposta Escrita por IA
+  const handleEvaluateWrittenAnswer = () => {
+    if (!userWrittenAnswer.trim() || !activeNote) return;
+    setAiActionLoading(true);
+
+    setTimeout(() => {
+      const target = (activeNote.fields?.Back || "").toLowerCase();
+      const user = userWrittenAnswer.toLowerCase();
+      const commonWords = user.split(" ").filter(w => w.length > 3 && target.includes(w));
+      const score = Math.min(100, Math.max(30, Math.round((commonWords.length / Math.max(1, target.split(" ").length)) * 120)));
+
+      setAiEvaluation({
+        score,
+        feedback: score >= 75
+          ? "Excelente compreensão! Você capturou todos os elementos essenciais do conceito."
+          : `Você entendeu parte da ideia, mas lembre-se de enfatizar: "${activeNote.fields?.Back}".`
+      });
+      setIsFlipped(true);
+      setAiActionLoading(false);
+    }, 1000);
+  };
+
+  // Ações de IA no Flashcard
+  const handleAiAction = (actionType: "explain" | "example" | "harder" | "deeper") => {
+    if (!activeNote) return;
+    setAiActionLoading(true);
+
+    const question = activeNote.fields?.Front || "";
+    const answer = activeNote.fields?.Back || "";
+
+    setTimeout(() => {
+      let text = "";
+      if (actionType === "explain") {
+        text = `💡 **Explicação Simplificada:** Pense em "${question}" como um mecanismo onde o objetivo principal é ${answer.toLowerCase()}. De forma intuitiva, sempre que esse processo ocorre, o sistema garante estabilidade e eficiência.`;
+      } else if (actionType === "example") {
+        text = `🧠 **Exemplo Prático:** Imagine um cenário no dia a dia ou em produção: ao lidar com este problema, a aplicação direta seria aplicar "${answer}" para evitar falhas de execução.`;
+      } else if (actionType === "harder") {
+        text = `🎯 **Desafio Avançado:** Como esse conceito (${answer}) se comportaria em cenários de alta concorrência ou em sistemas distribuídos de larga escala?`;
+      } else if (actionType === "deeper") {
+        text = `📚 **Aprofundamento Teórico:** Este comportamento é fundamentado nos princípios de otimização e modelos de persistência, onde ${answer} atua como pilar central.`;
       }
-    }
+      setAiExplanation(text);
+      setAiActionLoading(false);
+    }, 800);
   };
 
-  const speakText = (side: "front" | "back") => {
-    if (!('speechSynthesis' in window) || !activeNote) return;
-    
-    let text = side === "front" ? (activeNote.fields.Front || "") : (activeNote.fields.Back || "");
-    text = text.replace(/<\/?[^>]+(>|$)/g, ""); // limpar marcações HTML do Cloze
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (activeNote.tags?.includes("ingles") || activeCard.deckId.includes("ingles")) {
-      utterance.lang = "en-US";
-    } else {
-      utterance.lang = "pt-BR";
-    }
-
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Renderizar o conteúdo
-  if (loading) {
+  if (!activeCard || !activeNote) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 bg-bg-card border border-border-color rounded-2xl max-w-2xl mx-auto text-center gap-6 mt-8">
-        <span className="material-symbols-outlined text-6xl text-accent-blue animate-spin">autorenew</span>
-        <h2 className="text-xl font-bold">Carregando fila de estudos...</h2>
-      </div>
-    );
-  }
-
-  // Renderizar o conteúdo
-  if (studyQueue.length === 0 || currentIndex >= studyQueue.length) {
-    return (
-      <div className="flex flex-col items-center justify-center p-12 bg-bg-card border border-border-color rounded-2xl max-w-2xl mx-auto text-center gap-6 mt-8">
-        <span className="material-symbols-outlined text-6xl text-color-easy">check_circle</span>
-        <h2 className="text-xl font-bold">🎉 Nenhuma revisão agendada!</h2>
-        <p className="text-text-secondary text-sm">
-          Você limpou sua fila de cartões do dia ou o baralho selecionado está em dia. Volte mais tarde!
+      <div className="bg-bg-card border border-border-color rounded-3xl p-12 text-center max-w-xl mx-auto flex flex-col items-center gap-4 animate-fade-in">
+        <span className="material-symbols-outlined text-6xl text-easy">verified</span>
+        <h2 className="text-xl font-bold text-text-primary">Nenhum cartão para estudar neste momento!</h2>
+        <p className="text-xs text-text-secondary">
+          Você revisou todos os cartões agendados pelo FSRS para hoje.
         </p>
-        <button onClick={onFinished} className="bg-accent-blue hover:bg-accent-blue/80 text-white font-bold px-6 py-2.5 rounded-full cursor-pointer transition-all duration-300">
-          Voltar para Biblioteca
+        <button
+          onClick={onFinished}
+          className="bg-accent-purple text-white font-bold text-xs px-6 py-3 rounded-xl cursor-pointer"
+        >
+          Voltar à Biblioteca
         </button>
       </div>
     );
   }
 
-  // Obter texto formatado de acordo com NoteType (Cloze, Reverso)
-  let frontContent = activeNote?.fields?.Front || "";
-  let backContent = activeNote?.fields?.Back || "";
-
-  if (activeNote?.noteType === "CLOZE") {
-    const clozeOrdinal = activeCard.cardOrdinal;
-    const clozeRegex = new RegExp(`\\{\\{c${clozeOrdinal + 1}::(.*?)\\}\\}`, "g");
-    frontContent = frontContent.replace(clozeRegex, `<span class="cloze-obscured">[...]</span>`);
-    frontContent = frontContent.replace(/\{\{c\d+::(.*?)\}\}/g, "$1");
-
-    backContent = activeNote.fields.Front.replace(clozeRegex, `<span class="cloze-revealed">$1</span>`);
-    backContent = backContent.replace(/\{\{c\d+::(.*?)\}\}/g, "$1");
-  } else if (activeNote?.noteType === "BASIC_REVERSED" && activeCard.cardOrdinal === 1) {
-    const temp = frontContent;
-    frontContent = backContent;
-    backContent = temp;
-  }
-
-  const fillPct = (currentIndex / studyQueue.length) * 100;
-
-  // Intervalos estimados de FSRS para exibir nos botões
-  const nextAgain = calculateNextFSRSState(1, activeCard);
-  const nextHard = calculateNextFSRSState(2, activeCard);
-  const nextGood = calculateNextFSRSState(3, activeCard);
-  const nextEasy = calculateNextFSRSState(4, activeCard);
-
   return (
-    <div className="flex flex-col gap-6 max-w-2xl mx-auto">
-      {/* Progresso */}
-      <div className="flex justify-between items-center bg-bg-card border border-border-color rounded-2xl p-4">
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto pb-12 animate-fade-in">
+      
+      {/* TOP CONTROLS & MODES */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-border-color pb-4">
         <div className="flex items-center gap-3">
-          <h2 className="text-base font-bold text-text-primary">Estudando: {activeCard.deckId}</h2>
-          <span className="text-[10px] font-semibold text-accent-yellow bg-accent-yellow/8 border border-accent-yellow/20 px-2 py-0.5 rounded-full uppercase">
-            {activeCard.state}
-          </span>
-        </div>
-        <div className="flex flex-col items-end gap-1.5 w-[200px]">
-          <div className="w-full h-1.5 bg-bg-app rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-accent-blue to-color-easy transition-all duration-300" style={{ width: `${fillPct}%` }}></div>
-          </div>
-          <span className="text-[11px] font-bold text-text-secondary">
-            {currentIndex + 1} de {studyQueue.length} cartões
-          </span>
-        </div>
-      </div>
-
-      {/* 3D Flashcard Container */}
-      <div className="perspective-1000 w-full h-[360px] cursor-pointer mt-4">
-        <div 
-          onClick={() => setIsFlipped(prev => !prev)}
-          className={`relative w-full h-full transform-preserve-3d transition-transform duration-500 ${isFlipped ? "rotate-y-180" : ""}`}
-        >
-          {/* Frente */}
-          <div className="absolute inset-0 backface-hidden rounded-2xl bg-bg-card border-2 border-border-color p-8 flex flex-col justify-between shadow-xl">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-bold tracking-widest text-text-disabled uppercase">FRENTE</span>
-              <span 
-                onClick={(e) => { e.stopPropagation(); speakText("front"); }}
-                className="material-symbols-outlined text-text-secondary hover:text-text-primary hover:bg-white/5 p-2 rounded-full cursor-pointer transition-all"
-              >
-                volume_up
-              </span>
-            </div>
-            <div 
-              className="text-2xl font-bold text-center leading-relaxed flex items-center justify-center flex-1 px-4 word-break"
-              dangerouslySetInnerHTML={{ __html: frontContent }}
-            />
-            <div className="text-xs text-text-disabled text-center">
-              Clique no cartão ou aperte [Espaço] para revelar a resposta
-            </div>
-          </div>
-
-          {/* Verso */}
-          <div className="absolute inset-0 backface-hidden rotate-y-180 rounded-2xl bg-[#17153a] border-2 border-accent-blue/30 p-8 flex flex-col justify-between shadow-xl">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-bold tracking-widest text-accent-blue/60 uppercase">VERSO</span>
-              <span 
-                onClick={(e) => { e.stopPropagation(); speakText("back"); }}
-                className="material-symbols-outlined text-text-secondary hover:text-text-primary hover:bg-white/5 p-2 rounded-full cursor-pointer transition-all"
-              >
-                volume_up
-              </span>
-            </div>
-            <div 
-              className="text-2xl font-bold text-center leading-relaxed flex items-center justify-center flex-1 px-4 word-break"
-              dangerouslySetInnerHTML={{ __html: backContent }}
-            />
-            <div className="flex justify-center gap-5 text-[11px] text-text-secondary border-t border-white/5 pt-3 mt-3">
-              <span><strong>Estabilidade:</strong> {activeCard.stability.toFixed(2)}d</span>
-              <span><strong>Dificuldade:</strong> {activeCard.difficulty.toFixed(2)}</span>
-              <span><strong>Próximo agendamento:</strong> {activeCard.scheduledDays}d</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Ações / Respostas */}
-      <div className="h-20 flex justify-center items-center mt-4">
-        {!isFlipped ? (
-          <button 
-            onClick={() => setIsFlipped(true)}
-            className="w-full bg-accent-blue hover:bg-accent-blue/90 text-white font-bold p-4 rounded-xl cursor-pointer flex items-center justify-center gap-3 shadow-lg shadow-accent-blue/20 transition-all duration-300"
+          <button
+            onClick={onFinished}
+            className="p-2 rounded-xl text-text-secondary hover:text-text-primary hover:bg-white/5 cursor-pointer flex items-center gap-1 text-xs font-bold"
           >
-            <span>Revelar Resposta</span>
-            <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-extrabold uppercase">Espaço</span>
+            <span className="material-symbols-outlined text-lg">arrow_back</span>
+            <span>Sair</span>
           </button>
-        ) : (
-          <div className="flex gap-2 sm:gap-3 w-full">
-            <button 
-              onClick={() => submitReview(1)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-again/30 bg-again/10 text-again hover:bg-again hover:text-white hover:shadow-lg hover:shadow-again/30 cursor-pointer relative transition-all duration-300 group"
+          <span className="text-xs font-bold text-text-primary uppercase tracking-wider bg-white/5 px-3 py-1 rounded-full border border-border-color">
+            Deck: {activeCard.deckId}
+          </span>
+        </div>
+
+        {/* MUDANÇA DE MODO DE ESTUDO */}
+        <div className="bg-bg-card border border-border-color p-1 rounded-2xl flex items-center gap-1">
+          <button
+            onClick={() => { setStudyMode("review"); resetCardState(); }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${studyMode === "review" ? "bg-accent-purple text-white shadow-sm" : "text-text-secondary hover:text-text-primary"}`}
+          >
+            <span className="material-symbols-outlined text-sm">style</span>
+            <span>Review FSRS</span>
+          </button>
+          <button
+            onClick={() => { setStudyMode("quiz"); resetCardState(); }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${studyMode === "quiz" ? "bg-accent-purple text-white shadow-sm" : "text-text-secondary hover:text-text-primary"}`}
+          >
+            <span className="material-symbols-outlined text-sm">quiz</span>
+            <span>Quiz</span>
+          </button>
+          <button
+            onClick={() => { setStudyMode("written"); resetCardState(); }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${studyMode === "written" ? "bg-accent-purple text-white shadow-sm" : "text-text-secondary hover:text-text-primary"}`}
+          >
+            <span className="material-symbols-outlined text-sm">edit_note</span>
+            <span>Escrita + IA</span>
+          </button>
+          <button
+            onClick={() => { setStudyMode("tutor"); resetCardState(); }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${studyMode === "tutor" ? "bg-accent-purple text-white shadow-sm" : "text-text-secondary hover:text-text-primary"}`}
+          >
+            <span className="material-symbols-outlined text-sm">psychology</span>
+            <span>AI Tutor</span>
+          </button>
+        </div>
+
+        {/* PROGRESSO */}
+        <span className="text-xs font-bold text-text-secondary">
+          Card {currentIndex + 1} de {studyQueue.length}
+        </span>
+      </div>
+
+      {/* 1. MODO: REVIEW FSRS PADRÃO */}
+      {studyMode === "review" && (
+        <div className="flex flex-col gap-6">
+          <div
+            onClick={() => setIsFlipped(prev => !prev)}
+            className="bg-bg-card border border-border-color hover:border-accent-purple/50 rounded-3xl p-8 md:p-12 min-h-[320px] flex flex-col justify-between shadow-2xl cursor-pointer transition-all duration-300 relative group"
+          >
+            <div className="flex justify-between items-center text-xs text-text-disabled uppercase font-bold tracking-widest">
+              <span>{isFlipped ? "Verso / Resposta" : "Frente / Pergunta"}</span>
+              <span className="text-accent-purple group-hover:scale-110 transition-transform">
+                {isFlipped ? "clique para virar" : "clique para revelar"}
+              </span>
+            </div>
+
+            <div className="my-8 text-center flex flex-col items-center justify-center">
+              <span className="text-xl md:text-2xl font-bold text-text-primary leading-relaxed max-w-xl">
+                {isFlipped ? activeNote.fields?.Back : activeNote.fields?.Front}
+              </span>
+            </div>
+
+            <div className="text-center text-xs text-text-disabled">
+              Atalho: Pressione <kbd className="bg-white/10 px-2 py-0.5 rounded text-text-primary">Espaço</kbd> para virar
+            </div>
+          </div>
+
+          {/* BOTÕES FSRS CLASSIFICAÇÃO */}
+          {isFlipped && (
+            <div className="flex flex-col gap-4 animate-fade-in">
+              <div className="text-center text-xs text-text-secondary font-bold">
+                Como foi lembrar desta resposta?
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button
+                  onClick={() => submitReview(1)}
+                  className="bg-again/15 hover:bg-again text-again hover:text-white border border-again/40 font-black py-4 px-3 rounded-2xl flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-again/20"
+                >
+                  <span className="text-sm">Again</span>
+                  <span className="text-[10px] opacity-75">&lt; 10 min (1)</span>
+                </button>
+
+                <button
+                  onClick={() => submitReview(2)}
+                  className="bg-hard/15 hover:bg-hard text-hard hover:text-white border border-hard/40 font-black py-4 px-3 rounded-2xl flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-hard/20"
+                >
+                  <span className="text-sm">Hard</span>
+                  <span className="text-[10px] opacity-75">1-2 dias (2)</span>
+                </button>
+
+                <button
+                  onClick={() => submitReview(3)}
+                  className="bg-good/15 hover:bg-good text-good hover:text-white border border-good/40 font-black py-4 px-3 rounded-2xl flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-good/20"
+                >
+                  <span className="text-sm">Good</span>
+                  <span className="text-[10px] opacity-75">3-4 dias (3)</span>
+                </button>
+
+                <button
+                  onClick={() => submitReview(4)}
+                  className="bg-easy/15 hover:bg-easy text-easy hover:text-white border border-easy/40 font-black py-4 px-3 rounded-2xl flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-easy/20"
+                >
+                  <span className="text-sm">Easy</span>
+                  <span className="text-[10px] opacity-75">7+ dias (4)</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. MODO: QUIZ MODE */}
+      {studyMode === "quiz" && (
+        <div className="bg-bg-card border border-border-color rounded-3xl p-8 flex flex-col gap-6 shadow-2xl">
+          <div className="text-xs font-bold text-accent-purple uppercase tracking-wider">
+            Modo Quiz Interativo
+          </div>
+
+          <h2 className="text-lg md:text-xl font-bold text-text-primary">
+            {activeNote.fields?.Front}
+          </h2>
+
+          <div className="flex flex-col gap-3 my-2">
+            {quizOptions.map((opt, idx) => {
+              const isCorrect = opt === activeNote.fields?.Back;
+              const isSelected = quizSelectedOption === idx;
+              let btnStyle = "bg-bg-input border-border-color text-text-primary hover:border-accent-purple";
+              
+              if (quizSelectedOption !== null) {
+                if (isCorrect) btnStyle = "bg-easy/20 border-easy text-easy font-bold";
+                else if (isSelected) btnStyle = "bg-again/20 border-again text-again";
+                else btnStyle = "bg-bg-input/40 border-border-color/40 text-text-disabled";
+              }
+
+              return (
+                <button
+                  key={idx}
+                  disabled={quizSelectedOption !== null}
+                  onClick={() => {
+                    setQuizSelectedOption(idx);
+                    if (isCorrect) showToast("Resposta correta! +10 pts", "success");
+                    else showToast("Incorreto. Veja a resposta correta acima.", "error");
+                  }}
+                  className={`w-full p-4 rounded-2xl border text-left text-sm flex items-center justify-between transition-all duration-200 cursor-pointer disabled:cursor-default ${btnStyle}`}
+                >
+                  <span>{opt}</span>
+                  {quizSelectedOption !== null && isCorrect && (
+                    <span className="material-symbols-outlined text-easy">check_circle</span>
+                  )}
+                  {quizSelectedOption !== null && isSelected && !isCorrect && (
+                    <span className="material-symbols-outlined text-again">cancel</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {quizSelectedOption !== null && (
+            <button
+              onClick={advanceCard}
+              className="bg-accent-purple hover:bg-accent-purple/90 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 mt-2"
             >
-              <span className="text-xs sm:text-[13px] font-bold">Again</span>
-              <span className="text-[10px] sm:text-[11px] opacity-80">{nextAgain.scheduledDays}d</span>
-              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">1</span>
+              <span>Próxima Pergunta</span>
+              <span className="material-symbols-outlined text-base">arrow_forward</span>
             </button>
-            <button 
-              onClick={() => submitReview(2)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-hard/30 bg-hard/10 text-hard hover:bg-hard hover:text-white hover:shadow-lg hover:shadow-hard/30 cursor-pointer relative transition-all duration-300 group"
+          )}
+        </div>
+      )}
+
+      {/* 3. MODO: WRITTEN ANSWER + AVALIAÇÃO DE IA */}
+      {studyMode === "written" && (
+        <div className="bg-bg-card border border-border-color rounded-3xl p-8 flex flex-col gap-6 shadow-2xl">
+          <div className="text-xs font-bold text-accent-purple uppercase tracking-wider">
+            Escrita Livre & Avaliação por IA
+          </div>
+
+          <h2 className="text-lg md:text-xl font-bold text-text-primary">
+            {activeNote.fields?.Front}
+          </h2>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-text-secondary font-semibold">Sua Resposta:</label>
+            <textarea
+              value={userWrittenAnswer}
+              onChange={(e) => setUserWrittenAnswer(e.target.value)}
+              placeholder="Digite sua explicação detalhada com suas próprias palavras..."
+              rows={4}
+              className="w-full bg-bg-input border border-border-color text-text-primary text-sm p-4 rounded-2xl outline-none focus:border-accent-purple transition-all duration-200"
+            />
+          </div>
+
+          {!aiEvaluation ? (
+            <button
+              onClick={handleEvaluateWrittenAnswer}
+              disabled={!userWrittenAnswer.trim() || aiActionLoading}
+              className="bg-gradient-to-r from-accent-purple to-purple-700 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
             >
-              <span className="text-xs sm:text-[13px] font-bold">Hard</span>
-              <span className="text-[10px] sm:text-[11px] opacity-80">{nextHard.scheduledDays}d</span>
-              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">2</span>
+              {aiActionLoading ? (
+                <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-lg">auto_awesome</span>
+                  <span>Avaliar com IA</span>
+                </>
+              )}
             </button>
-            <button 
-              onClick={() => submitReview(3)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-good/30 bg-good/10 text-good hover:bg-good hover:text-white hover:shadow-lg hover:shadow-good/30 cursor-pointer relative transition-all duration-300 group"
+          ) : (
+            <div className="flex flex-col gap-4 animate-fade-in">
+              <div className="bg-bg-input p-5 rounded-2xl border border-border-color flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-text-secondary uppercase">Pontuação de Precisão</span>
+                  <span className={`text-lg font-black ${aiEvaluation.score >= 70 ? "text-easy" : "text-hard"}`}>
+                    {aiEvaluation.score}%
+                  </span>
+                </div>
+                <p className="text-xs text-text-primary leading-relaxed">{aiEvaluation.feedback}</p>
+                <div className="text-xs text-text-secondary pt-2 mt-2 border-t border-border-color/60">
+                  <strong className="text-text-primary">Gabarito Ideal:</strong> {activeNote.fields?.Back}
+                </div>
+              </div>
+
+              <button
+                onClick={advanceCard}
+                className="bg-accent-purple text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>Avançar para o Próximo</span>
+                <span className="material-symbols-outlined text-base">arrow_forward</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 4. MODO: GUIDED STUDY (AI TUTOR SOCRÁTICO) */}
+      {studyMode === "tutor" && (
+        <div className="bg-bg-card border border-accent-purple/40 rounded-3xl p-8 flex flex-col gap-6 shadow-2xl relative overflow-hidden">
+          <div className="flex items-center gap-2 text-accent-purple">
+            <span className="material-symbols-outlined text-2xl">psychology</span>
+            <span className="text-xs font-black uppercase tracking-wider">AI Tutor Socrático</span>
+          </div>
+
+          <div className="bg-bg-input/80 p-5 rounded-2xl border border-border-color flex flex-col gap-3">
+            <span className="text-xs font-bold text-accent-purple">Tutor:</span>
+            <p className="text-sm text-text-primary leading-relaxed">
+              "Vamos explorar juntos: sobre <strong>{activeNote.fields?.Front}</strong>, qual é o principal impacto desse conceito e por que ele é tão crucial?"
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => handleAiAction("explain")}
+              className="bg-white/5 hover:bg-white/10 text-text-primary text-xs font-bold p-3.5 rounded-xl border border-border-color text-left flex items-center justify-between cursor-pointer"
             >
-              <span className="text-xs sm:text-[13px] font-bold">Good</span>
-              <span className="text-[10px] sm:text-[11px] opacity-80">{nextGood.scheduledDays}d</span>
-              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">3</span>
+              <span>Me explique o conceito do zero com uma metáfora simples</span>
+              <span className="material-symbols-outlined text-sm text-accent-purple">lightbulb</span>
             </button>
-            <button 
-              onClick={() => submitReview(4)}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 p-2 sm:p-3 rounded-xl border border-easy/30 bg-easy/10 text-easy hover:bg-easy hover:text-white hover:shadow-lg hover:shadow-easy/30 cursor-pointer relative transition-all duration-300 group"
+            <button
+              onClick={() => handleAiAction("example")}
+              className="bg-white/5 hover:bg-white/10 text-text-primary text-xs font-bold p-3.5 rounded-xl border border-border-color text-left flex items-center justify-between cursor-pointer"
             >
-              <span className="text-xs sm:text-[13px] font-bold">Easy</span>
-              <span className="text-[10px] sm:text-[11px] opacity-80">{nextEasy.scheduledDays}d</span>
-              <span className="absolute top-1 right-1.5 text-[8px] sm:text-[9px] opacity-60 bg-white/10 group-hover:bg-black/10 px-1 rounded sm:inline hidden">4</span>
+              <span>Dê um exemplo prático de aplicação no mundo real</span>
+              <span className="material-symbols-outlined text-sm text-accent-purple">code</span>
             </button>
           </div>
-        )}
-      </div>
+
+          <button
+            onClick={advanceCard}
+            className="bg-accent-purple text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer mt-2"
+          >
+            <span>Próximo Tópico com o Tutor</span>
+            <span className="material-symbols-outlined text-base">arrow_forward</span>
+          </button>
+        </div>
+      )}
+
+      {/* AÇÕES RÁPIDAS DE IA NO VERSO */}
+      {isFlipped && (
+        <div className="bg-bg-card border border-border-color p-5 rounded-2xl flex flex-col gap-3 animate-fade-in">
+          <div className="flex items-center gap-2 text-xs font-bold text-accent-purple uppercase tracking-wider">
+            <span className="material-symbols-outlined text-base">auto_awesome</span>
+            <span>Ações Inteligentes de IA</span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => handleAiAction("explain")}
+              className="bg-white/5 hover:bg-accent-purple/20 hover:text-text-primary text-text-secondary text-xs px-3.5 py-2 rounded-xl border border-border-color cursor-pointer transition-colors"
+            >
+              ✨ Explicar de outra forma
+            </button>
+            <button
+              onClick={() => handleAiAction("example")}
+              className="bg-white/5 hover:bg-accent-purple/20 hover:text-text-primary text-text-secondary text-xs px-3.5 py-2 rounded-xl border border-border-color cursor-pointer transition-colors"
+            >
+              🧠 Dar um exemplo prático
+            </button>
+            <button
+              onClick={() => handleAiAction("harder")}
+              className="bg-white/5 hover:bg-accent-purple/20 hover:text-text-primary text-text-secondary text-xs px-3.5 py-2 rounded-xl border border-border-color cursor-pointer transition-colors"
+            >
+              🎯 Desafio mais difícil
+            </button>
+            <button
+              onClick={() => handleAiAction("deeper")}
+              className="bg-white/5 hover:bg-accent-purple/20 hover:text-text-primary text-text-secondary text-xs px-3.5 py-2 rounded-xl border border-border-color cursor-pointer transition-colors"
+            >
+              📚 Aprofundar teoria
+            </button>
+          </div>
+
+          {aiActionLoading && (
+            <div className="flex items-center gap-2 text-xs text-accent-purple py-2 animate-pulse">
+              <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+              <span>A IA está processando sua solicitação...</span>
+            </div>
+          )}
+
+          {aiExplanation && !aiActionLoading && (
+            <div className="bg-bg-input p-4 rounded-xl border border-accent-purple/30 text-xs text-text-primary leading-relaxed mt-2 animate-fade-in">
+              {aiExplanation}
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

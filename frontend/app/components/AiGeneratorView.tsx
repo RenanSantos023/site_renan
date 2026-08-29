@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import type { Note, Card } from "../../amplify/data/resource";
+import { getAuthSessionToken } from "../amplify-client";
 
 interface AiGeneratorViewProps {
   showToast: (msg: string, type: "success" | "error" | "info") => void;
@@ -28,11 +29,12 @@ export default function AiGeneratorView({ showToast, onCreateNotes }: AiGenerato
 
     if (apiMode === "aws" && apiUrl) {
       try {
+        const token = await getAuthSessionToken();
         const response = await fetch(`${apiUrl}/ai/generate-cards`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer SIMULATED_TOKEN",
+            "Authorization": token ? `Bearer ${token}` : "Bearer SIMULATED_TOKEN",
             "X-User-Id": userId
           },
           body: JSON.stringify({

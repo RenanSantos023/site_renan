@@ -1,8 +1,102 @@
 'use client';
 
+import { Amplify } from 'aws-amplify';
+import { 
+  signIn, 
+  signUp, 
+  confirmSignUp, 
+  signOut, 
+  fetchAuthSession, 
+  getCurrentUser,
+  type SignInOutput,
+  type SignUpOutput
+} from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/api';
 import type { Schema, Note, Card } from '../amplify/data/resource';
 import { calculateNextFSRSState } from '../utils/fsrsMath';
+
+// Configurar dinamicamente o Amplify Auth com os dados do Cognito
+export function configureAmplifyAuth(): boolean {
+  if (typeof window === 'undefined') return false;
+  
+  const userPoolId = localStorage.getItem('ultra_cognito_user_pool_id');
+  const userPoolClientId = localStorage.getItem('ultra_cognito_client_id');
+
+  if (userPoolId && userPoolClientId) {
+    try {
+      Amplify.configure({
+        Auth: {
+          Cognito: {
+            userPoolId,
+            userPoolClientId,
+            signUpVerificationMethod: 'code'
+          }
+        }
+      });
+      return true;
+    } catch (e) {
+      console.warn('Erro ao configurar Amplify Auth:', e);
+      return false;
+    }
+  }
+  return false;
+}
+
+// Helpers de Autenticação do Cognito
+export async function signInUser(email: string, password: string): Promise<SignInOutput> {
+  configureAmplifyAuth();
+  return await signIn({ username: email.trim(), password });
+}
+
+export async function signUpUser(email: string, password: string): Promise<SignUpOutput> {
+  configureAmplifyAuth();
+  return await signUp({
+    username: email.trim(),
+    password,
+    options: {
+      userAttributes: {
+        email: email.trim()
+      }
+    }
+  });
+}
+
+export async function confirmUserSignUp(email: string, code: string) {
+  configureAmplifyAuth();
+  return await confirmSignUp({
+    username: email.trim(),
+    confirmationCode: code.trim()
+  });
+}
+
+export async function signOutUser(): Promise<void> {
+  try {
+    await signOut();
+  } catch (e) {
+    console.warn('Erro ao deslogar:', e);
+  }
+}
+
+export async function getAuthSessionToken(): Promise<string | null> {
+  try {
+    const configured = configureAmplifyAuth();
+    if (!configured) return null;
+    const session = await fetchAuthSession();
+    return session.tokens?.idToken?.toString() || session.tokens?.accessToken?.toString() || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function getCurrentAuthenticatedUser() {
+  try {
+    const configured = configureAmplifyAuth();
+    if (!configured) return null;
+    return await getCurrentUser();
+  } catch (e) {
+    return null;
+  }
+}
 
 // Pesos padrão do FSRS v4.5
 const W = [
@@ -258,7 +352,6 @@ export function getAmplifyClient() {
   
   const mode = localStorage.getItem("ultra_api_mode") || "mock";
   if (mode === "aws") {
-    // Configura e retorna o cliente real do Amplify Gen 2 se configurado
     try {
       return generateClient<Schema>();
     } catch (e) {

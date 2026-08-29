@@ -67,6 +67,36 @@ Resources:
         SSEEnabled: true
 
   # =========================================================================
+  # Cognito Authentication - User Pool & Client
+  # =========================================================================
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'ultra-flashcards-user-pool-${Stage}'
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 'ultra-flashcards-client-${Stage}'
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+  # =========================================================================
   # HTTP API (API Gateway v2)
   # =========================================================================
   HttpApi:
@@ -86,8 +116,18 @@ Resources:
           - X-Amz-Date
           - X-Api-Key
           - X-Amz-Security-Token
+          - X-User-Id
         AllowOrigins:
           - '*'
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              Audience:
+                - !Ref CognitoUserPoolClient
+              Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}'
 
   # =========================================================================
   # Lambda Functions
@@ -153,3 +193,12 @@ Outputs:
   DynamoDBTableArn:
     Description: ARN of the DynamoDB table
     Value: !GetAtt AnkiSaaSTable.Arn
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool
+  CognitoUserPoolClientId:
+    Description: Cognito User Pool App Client ID
+    Value: !Ref CognitoUserPoolClient
+  CognitoUserPoolArn:
+    Description: Cognito User Pool ARN
+    Value: !GetAtt CognitoUserPool.Arn
