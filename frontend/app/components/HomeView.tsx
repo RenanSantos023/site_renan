@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState } from "react";
-import type { Note, Card } from "../../amplify/data/resource";
+import type { Note, Card, Deck, AnalyticsSummaryResponse } from "../../amplify/data/resource";
 
 interface HomeViewProps {
   notes: Note[];
   cards: Card[];
+  decks?: Deck[];
+  analytics?: AnalyticsSummaryResponse | null;
   onStartStudy: (deckId?: string) => void;
   onNavigateTab: (tab: string) => void;
   onQuickStartPrompt: (promptText: string) => void;
@@ -15,6 +17,8 @@ interface HomeViewProps {
 export default function HomeView({
   notes,
   cards,
+  decks = [],
+  analytics = null,
   onStartStudy,
   onNavigateTab,
   onQuickStartPrompt,
@@ -29,22 +33,36 @@ export default function HomeView({
   const reviewCards = cards.filter(c => c.state === "REVIEW");
   const masteredCards = cards.filter(c => (c.stability || 0) > 15 || (c.state === "REVIEW" && (c.scheduledDays || 0) > 21));
 
-  const totalCards = cards.length || 1;
-  const masteryPercent = Math.min(100, Math.round((masteredCards.length / totalCards) * 100));
+  const totalCards = analytics?.summary.total_cards ?? (cards.length || 1);
+  const masteryPercent = analytics?.summary.mastery_percent ?? Math.min(100, Math.round((masteredCards.length / Math.max(1, totalCards)) * 100));
   const estimatedTimeMin = Math.max(2, Math.round(dueCards.length * 0.45));
+  const streakDays = analytics?.gamification.streak_days ?? 0;
 
   // Agrupamento por Deck para "Continue Learning"
-  const decksMap = new Map<string, { noteCount: number; cardCount: number; dueCount: number; masteredCount: number }>();
+  const decksMap = new Map<string, { noteCount: number; cardCount: number; dueCount: number; masteredCount: number; title?: string; icon?: string }>();
+  
+  // Incorporar dados dos decks oficiais
+  decks.forEach(d => {
+    decksMap.set(d.deckId, {
+      noteCount: d.totalNotes || 0,
+      cardCount: d.totalCards || 0,
+      dueCount: 0,
+      masteredCount: 0,
+      title: d.title,
+      icon: d.icon
+    });
+  });
+
   notes.forEach(note => {
     const d = note.deckId || "geral";
-    const current = decksMap.get(d) || { noteCount: 0, cardCount: 0, dueCount: 0, masteredCount: 0 };
+    const current = decksMap.get(d) || { noteCount: 0, cardCount: 0, dueCount: 0, masteredCount: 0, title: d };
     current.noteCount += 1;
     decksMap.set(d, current);
   });
 
   cards.forEach(card => {
     const d = card.deckId || "geral";
-    const current = decksMap.get(d) || { noteCount: 0, cardCount: 0, dueCount: 0, masteredCount: 0 };
+    const current = decksMap.get(d) || { noteCount: 0, cardCount: 0, dueCount: 0, masteredCount: 0, title: d };
     current.cardCount += 1;
     if (!card.dueDate || new Date(card.dueDate) <= now) current.dueCount += 1;
     if ((card.stability || 0) > 15) current.masteredCount += 1;
@@ -53,6 +71,8 @@ export default function HomeView({
 
   const deckEntries = Array.from(decksMap.entries()).map(([deckId, stats]) => ({
     deckId,
+    title: stats.title || deckId,
+    icon: stats.icon,
     ...stats,
     masteryPercent: stats.cardCount > 0 ? Math.round((stats.masteredCount / stats.cardCount) * 100) : 0
   }));
@@ -67,7 +87,8 @@ export default function HomeView({
     default: "folder"
   };
 
-  const getDeckIcon = (deckId: string) => {
+  const getDeckIcon = (deckId: string, customIcon?: string) => {
+    if (customIcon && deckIcons[customIcon.toLowerCase()]) return deckIcons[customIcon.toLowerCase()];
     const lower = deckId.toLowerCase();
     for (const key of Object.keys(deckIcons)) {
       if (lower.includes(key)) return deckIcons[key];
@@ -112,7 +133,7 @@ export default function HomeView({
           <span className="text-2xl animate-bounce">🔥</span>
           <div className="flex flex-col">
             <span className="text-xs font-extrabold uppercase tracking-wider text-orange-400">Sequência Ativa</span>
-            <span className="text-base font-black text-text-primary">12 Dias Consecutivos</span>
+            <span className="text-base font-black text-text-primary">{streakDays} {streakDays === 1 ? "Dia" : "Dias Consecutivos"}</span>
           </div>
         </div>
       </div>
@@ -131,7 +152,7 @@ export default function HomeView({
                 Estudo de Hoje (FSRS Engine)
               </span>
               <span className="text-xs text-text-secondary bg-white/5 px-3 py-1 rounded-full border border-border-color">
-                Meta Diária: 50 cards
+                Meta Diária: 30 cards
               </span>
             </div>
 
@@ -181,7 +202,7 @@ export default function HomeView({
               </span>
               <span className="text-xs font-bold text-easy flex items-center gap-1 bg-easy/10 px-2.5 py-0.5 rounded-full">
                 <span className="material-symbols-outlined text-sm">trending_up</span>
-                +8% esta semana
+                Calculado pelo FSRS
               </span>
             </div>
 
@@ -246,10 +267,10 @@ export default function HomeView({
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-accent-purple/15 text-accent-purple flex items-center justify-center font-bold">
-                    <span className="material-symbols-outlined text-xl">{getDeckIcon(deck.deckId)}</span>
+                    <span className="material-symbols-outlined text-xl">{getDeckIcon(deck.deckId, deck.icon)}</span>
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-text-primary capitalize truncate max-w-[140px]">{deck.deckId}</h3>
+                    <h3 className="text-sm font-bold text-text-primary capitalize truncate max-w-[140px]">{deck.title}</h3>
                     <span className="text-xs text-text-secondary">{deck.cardCount} flashcards</span>
                   </div>
                 </div>
@@ -330,32 +351,6 @@ export default function HomeView({
             </button>
           ))}
         </div>
-      </div>
-
-      {/* 5. RECOMMENDED FOR YOU (IA ADAPTATIVA) */}
-      <div className="bg-bg-card border border-border-color p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-again/15 text-again flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-2xl">priority_high</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xs font-bold text-again uppercase tracking-wider">Reforço Recomendado pela IA</span>
-            <h3 className="text-sm font-bold text-text-primary mt-0.5">
-              Identificamos menor retenção em cartões de conceitos fundamentais
-            </h3>
-            <p className="text-xs text-text-secondary">
-              Pratique uma sessão relâmpago focada nos cartões com maior taxa de erro nos últimos dias.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => onStartStudy()}
-          className="bg-accent-blue/15 hover:bg-accent-blue text-accent-blue hover:text-white border border-accent-blue/40 font-bold text-xs px-6 py-3 rounded-xl flex items-center gap-2 transition-all duration-200 cursor-pointer shrink-0"
-        >
-          <span className="material-symbols-outlined text-base">psychology</span>
-          <span>Praticar Pontos Fracos</span>
-        </button>
       </div>
 
     </div>

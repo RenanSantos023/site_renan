@@ -3,7 +3,12 @@
 import React, { useState, useEffect } from "react";
 import type { Note, Card } from "../../amplify/data/resource";
 import { calculateNextFSRSState } from "../../utils/fsrsMath";
-import { getAuthSessionToken } from "../amplify-client";
+import { 
+  apiSubmitReview, 
+  apiEvaluateWrittenAnswer, 
+  apiExecuteAiAction, 
+  apiGenerateQuizOptions 
+} from "../../utils/api";
 
 interface StudyViewProps {
   notes: Note[];
@@ -67,6 +72,8 @@ export default function StudyView({
 
   const activeCard = studyQueue[currentIndex];
   const activeNote = activeCard ? notes.find(n => n.noteId === activeCard.noteId) : null;
+  const frontText = activeNote?.fields?.Front || activeNote?.fields?.Pergunta || activeNote?.fields?.Termo || activeNote?.fields?.front || (activeCard ? `Card (${activeCard.deckId})` : "Pergunta");
+  const backText = activeNote?.fields?.Back || activeNote?.fields?.Resposta || activeNote?.fields?.Definicao || activeNote?.fields?.back || "Resposta do flashcard";
 
   const resetCardState = () => {
     setIsFlipped(false);
@@ -76,35 +83,50 @@ export default function StudyView({
     setAiExplanation(null);
   };
 
-  // Gerar opções de quiz quando mudar de card
+  // Gerar alternativas do Quiz via IA ao entrar no modo Quiz
   useEffect(() => {
-    if (!activeNote) return;
-    const correctAnswer = activeNote.fields?.Back || "Resposta correta";
-    
-    // Distratores a partir de outras notas
-    const otherNotes = notes.filter(n => n.noteId !== activeNote.noteId && n.fields?.Back);
-    const shuffledOthers = otherNotes.sort(() => 0.5 - Math.random()).slice(0, 3).map(n => n.fields.Back);
-    
-    const allOptions = [correctAnswer, ...shuffledOthers].sort(() => 0.5 - Math.random());
-    setQuizOptions(allOptions);
-  }, [currentIndex, activeNote, notes]);
+    if (studyMode === "quiz" && activeCard) {
+      const loadQuiz = async () => {
+        const answer = backText;
+        const question = frontText;
+        try {
+          const res = await apiGenerateQuizOptions({
+            question,
+            answer,
+            deckContext: activeCard.deckId
+          });
+          setQuizOptions(res.options);
+        } catch {
+          // Fallback gracioso com outros cards da coleção
+          const otherAnswers = notes
+            .filter(n => n.noteId !== activeCard.noteId && n.fields?.Back)
+            .map(n => n.fields.Back)
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 3);
+          const allOptions = [...otherAnswers, answer].sort(() => 0.5 - Math.random());
+          setQuizOptions(allOptions.length >= 2 ? allOptions : [answer, "Conceito secundário", "Definição incorreta", "Alternativa hipotética"]);
+        }
+      };
+      loadQuiz();
+    }
+  }, [studyMode, currentIndex, activeCard, frontText, backText]);
 
-  // Teclado atalhos para modo Review
+  // Atalhos de Teclado
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (studyMode !== "review" || studyQueue.length === 0 || currentIndex >= studyQueue.length) return;
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
 
-      if (e.code === "Space") {
+      if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
         setIsFlipped(prev => !prev);
       } else if (e.key === "1" && isFlipped) {
-        submitReview(1);
+        submitReview(1 as any);
       } else if (e.key === "2" && isFlipped) {
-        submitReview(2);
+        submitReview(2 as any);
       } else if (e.key === "3" && isFlipped) {
-        submitReview(3);
+        submitReview(3 as any);
       } else if (e.key === "4" && isFlipped) {
-        submitReview(4);
+        submitReview(4 as any);
       }
     };
 
@@ -112,14 +134,10 @@ export default function StudyView({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [studyQueue, currentIndex, isFlipped, studyMode]);
 
-  const submitReview = async (rating: number) => {
+  const submitReview = async (rating: 1 | 2 | 3 | 4) => {
     if (!activeCard) return;
 
     const nextFSRS = calculateNextFSRSState(rating, activeCard);
-    const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
-    const apiUrl = localStorage.getItem("ultra_api_url") || "";
-    const userId = localStorage.getItem("ultra_user_id") || "usr_dev_default";
-
     const ratingNames = ["Again", "Hard", "Good", "Easy"];
     showToast(`Cartão classificado: ${ratingNames[rating - 1]}`, "info");
 
@@ -133,42 +151,17 @@ export default function StudyView({
       updatedAt: new Date().toISOString()
     };
 
-    if (apiMode === "aws" && apiUrl) {
-      try {
-        const token = await getAuthSessionToken();
-        const response = await fetch(`${apiUrl}/study/review`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": token ? `Bearer ${token}` : "Bearer SIMULATED_TOKEN",
-            "X-User-Id": userId
-          },
-          body: JSON.stringify({
-            card_id: activeCard.cardId,
-            rating: rating,
-            review_time_ms: 1000
-          })
-        });
+    // Atualização otimista na UI
+    onReviewCard(activeCard.cardId, updatedFields);
 
-        if (response.ok) {
-          const result = await response.json();
-          onReviewCard(activeCard.cardId, {
-            stability: result.stability,
-            difficulty: result.difficulty,
-            state: result.state,
-            dueDate: result.next_review,
-            scheduledDays: result.interval_days,
-            lastReviewDate: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-        } else {
-          onReviewCard(activeCard.cardId, updatedFields);
-        }
-      } catch {
-        onReviewCard(activeCard.cardId, updatedFields);
-      }
-    } else {
-      onReviewCard(activeCard.cardId, updatedFields);
+    try {
+      await apiSubmitReview({
+        cardId: activeCard.cardId,
+        rating,
+        reviewTimeMs: 3500
+      });
+    } catch (err) {
+      console.warn("Aviso ao sincronizar review com a AWS:", err);
     }
 
     advanceCard();
@@ -176,21 +169,32 @@ export default function StudyView({
 
   const advanceCard = () => {
     resetCardState();
-    if (currentIndex + 1 >= studyQueue.length) {
-      showToast("🎉 Sessão de estudos finalizada com sucesso!", "success");
-      onFinished();
-    } else {
+    if (currentIndex + 1 < studyQueue.length) {
       setCurrentIndex(prev => prev + 1);
+    } else {
+      showToast("Sessão de estudos concluída! Parabéns!", "success");
+      onFinished();
     }
   };
 
   // Avaliação de Resposta Escrita por IA
-  const handleEvaluateWrittenAnswer = () => {
-    if (!userWrittenAnswer.trim() || !activeNote) return;
+  const handleEvaluateWrittenAnswer = async () => {
+    if (!userWrittenAnswer.trim() || !activeCard) return;
     setAiActionLoading(true);
 
-    setTimeout(() => {
-      const target = (activeNote.fields?.Back || "").toLowerCase();
+    const question = frontText;
+    const expectedAnswer = backText;
+
+    try {
+      const res = await apiEvaluateWrittenAnswer({
+        question,
+        expectedAnswer,
+        userAnswer: userWrittenAnswer.trim()
+      });
+      setAiEvaluation(res);
+    } catch {
+      // Fallback algorítmico local
+      const target = expectedAnswer.toLowerCase();
       const user = userWrittenAnswer.toLowerCase();
       const commonWords = user.split(" ").filter(w => w.length > 3 && target.includes(w));
       const score = Math.min(100, Math.max(30, Math.round((commonWords.length / Math.max(1, target.split(" ").length)) * 120)));
@@ -199,22 +203,31 @@ export default function StudyView({
         score,
         feedback: score >= 75
           ? "Excelente compreensão! Você capturou todos os elementos essenciais do conceito."
-          : `Você entendeu parte da ideia, mas lembre-se de enfatizar: "${activeNote.fields?.Back}".`
+          : `Você entendeu parte da ideia, mas lembre-se de enfatizar: "${expectedAnswer}".`
       });
+    } finally {
       setIsFlipped(true);
       setAiActionLoading(false);
-    }, 1000);
+    }
   };
 
   // Ações de IA no Flashcard
-  const handleAiAction = (actionType: "explain" | "example" | "harder" | "deeper") => {
-    if (!activeNote) return;
+  const handleAiAction = async (actionType: "explain" | "example" | "harder" | "deeper") => {
+    if (!activeCard) return;
     setAiActionLoading(true);
 
-    const question = activeNote.fields?.Front || "";
-    const answer = activeNote.fields?.Back || "";
+    const question = frontText;
+    const answer = backText;
 
-    setTimeout(() => {
+    try {
+      const res = await apiExecuteAiAction({
+        actionType,
+        question,
+        answer
+      });
+      setAiExplanation(res.explanation);
+    } catch {
+      // Fallback local se backend offline
       let text = "";
       if (actionType === "explain") {
         text = `💡 **Explicação Simplificada:** Pense em "${question}" como um mecanismo onde o objetivo principal é ${answer.toLowerCase()}. De forma intuitiva, sempre que esse processo ocorre, o sistema garante estabilidade e eficiência.`;
@@ -226,11 +239,12 @@ export default function StudyView({
         text = `📚 **Aprofundamento Teórico:** Este comportamento é fundamentado nos princípios de otimização e modelos de persistência, onde ${answer} atua como pilar central.`;
       }
       setAiExplanation(text);
+    } finally {
       setAiActionLoading(false);
-    }, 800);
+    }
   };
 
-  if (!activeCard || !activeNote) {
+  if (!activeCard || studyQueue.length === 0) {
     return (
       <div className="bg-bg-card border border-border-color rounded-3xl p-12 text-center max-w-xl mx-auto flex flex-col items-center gap-4 animate-fade-in">
         <span className="material-symbols-outlined text-6xl text-easy">verified</span>
@@ -320,7 +334,7 @@ export default function StudyView({
 
             <div className="my-8 text-center flex flex-col items-center justify-center">
               <span className="text-xl md:text-2xl font-bold text-text-primary leading-relaxed max-w-xl">
-                {isFlipped ? activeNote.fields?.Back : activeNote.fields?.Front}
+                {isFlipped ? backText : frontText}
               </span>
             </div>
 
@@ -382,12 +396,12 @@ export default function StudyView({
           </div>
 
           <h2 className="text-lg md:text-xl font-bold text-text-primary">
-            {activeNote.fields?.Front}
+            {frontText}
           </h2>
 
           <div className="flex flex-col gap-3 my-2">
             {quizOptions.map((opt, idx) => {
-              const isCorrect = opt === activeNote.fields?.Back;
+              const isCorrect = opt === backText;
               const isSelected = quizSelectedOption === idx;
               let btnStyle = "bg-bg-input border-border-color text-text-primary hover:border-accent-purple";
               
@@ -440,7 +454,7 @@ export default function StudyView({
           </div>
 
           <h2 className="text-lg md:text-xl font-bold text-text-primary">
-            {activeNote.fields?.Front}
+            {frontText}
           </h2>
 
           <div className="flex flex-col gap-2">
@@ -480,7 +494,7 @@ export default function StudyView({
                 </div>
                 <p className="text-xs text-text-primary leading-relaxed">{aiEvaluation.feedback}</p>
                 <div className="text-xs text-text-secondary pt-2 mt-2 border-t border-border-color/60">
-                  <strong className="text-text-primary">Gabarito Ideal:</strong> {activeNote.fields?.Back}
+                  <strong className="text-text-primary">Gabarito Ideal:</strong> {backText}
                 </div>
               </div>
 
@@ -507,7 +521,7 @@ export default function StudyView({
           <div className="bg-bg-input/80 p-5 rounded-2xl border border-border-color flex flex-col gap-3">
             <span className="text-xs font-bold text-accent-purple">Tutor:</span>
             <p className="text-sm text-text-primary leading-relaxed">
-              "Vamos explorar juntos: sobre <strong>{activeNote.fields?.Front}</strong>, qual é o principal impacto desse conceito e por que ele é tão crucial?"
+              "Vamos explorar juntos: sobre <strong>{frontText}</strong>, qual é o principal impacto desse conceito e por que ele é tão crucial?"
             </p>
           </div>
 

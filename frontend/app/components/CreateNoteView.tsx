@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import type { Note, Card } from "../../amplify/data/resource";
-import { getAuthSessionToken } from "../amplify-client";
+import { apiCreateNote } from "../../utils/api";
 
 const noteSchema = z.object({
   deckId: z.string().min(2, "O baralho deve ter pelo menos 2 caracteres."),
@@ -24,7 +24,7 @@ interface CreateNoteViewProps {
 }
 
 export default function CreateNoteView({ showToast, onCreateNote, onCancel }: CreateNoteViewProps) {
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<NoteFormData>({
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<NoteFormData>({
     resolver: zodResolver(noteSchema),
     defaultValues: {
       noteType: "BASIC",
@@ -38,289 +38,129 @@ export default function CreateNoteView({ showToast, onCreateNote, onCancel }: Cr
   const selectedNoteType = watch("noteType");
 
   const onSubmit = async (data: NoteFormData) => {
-    const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
-    const apiUrl = localStorage.getItem("ultra_api_url") || "";
-    const userId = localStorage.getItem("ultra_user_id") || "usr_dev_default";
-
     const tags = data.tags 
       ? data.tags.split(",").map(t => t.trim().toLowerCase()).filter(t => t.length > 0)
       : [];
 
-    const noteId = "not_" + Math.random().toString(36).substr(2, 9);
-    const timestamp = new Date().toISOString();
+    try {
+      const result = await apiCreateNote({
+        deck_id: data.deckId.toLowerCase().trim(),
+        note_type: data.noteType,
+        fields: { Front: data.front.trim(), Back: data.back.trim() },
+        tags
+      });
 
-    const newNote: Note = {
-      user_id: userId,
-      noteId: noteId,
-      deckId: data.deckId.toLowerCase().trim(),
-      noteType: data.noteType,
-      fields: { Front: data.front.trim(), Back: data.back.trim() },
-      tags,
-      createdAt: timestamp,
-      updatedAt: timestamp
-    };
-
-    // Derivação de cartões (RN-02)
-    const derivedCards: Card[] = [];
-    if (data.noteType === "BASIC" || data.noteType === "TYPE_ANSWER" || data.noteType === "IMAGE_OCCLUSION") {
-      derivedCards.push({
-        cardId: "crd_" + Math.random().toString(36).substr(2, 9),
-        noteId: noteId,
-        deckId: newNote.deckId,
-        cardOrdinal: 0,
-        state: "NEW",
-        stability: 0,
-        difficulty: 0,
-        dueDate: timestamp,
-        scheduledDays: 0,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
-    } else if (data.noteType === "BASIC_REVERSED") {
-      derivedCards.push({
-        cardId: "crd_" + Math.random().toString(36).substr(2, 9),
-        noteId: noteId,
-        deckId: newNote.deckId,
-        cardOrdinal: 0,
-        state: "NEW",
-        stability: 0,
-        difficulty: 0,
-        dueDate: timestamp,
-        scheduledDays: 0,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
-      derivedCards.push({
-        cardId: "crd_" + Math.random().toString(36).substr(2, 9),
-        noteId: noteId,
-        deckId: newNote.deckId,
-        cardOrdinal: 1,
-        state: "NEW",
-        stability: 0,
-        difficulty: 0,
-        dueDate: timestamp,
-        scheduledDays: 0,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
-    } else if (data.noteType === "CLOZE") {
-      const content = data.front;
-      const clozeRegex = /\{\{c(\d+)::(.*?)\}\}/g;
-      const clozes = new Set<number>();
-      let match;
-      while ((match = clozeRegex.exec(content)) !== null) {
-        clozes.add(parseInt(match[1]));
-      }
-      if (clozes.size === 0) clozes.add(1);
-
-      Array.from(clozes).sort((a, b) => a - b).forEach((clozeNum, idx) => {
-        derivedCards.push({
-          cardId: "crd_" + Math.random().toString(36).substr(2, 9),
-          noteId: noteId,
-          deckId: newNote.deckId,
-          cardOrdinal: idx,
-          state: "NEW",
-          stability: 0,
-          difficulty: 0,
-          dueDate: timestamp,
-          scheduledDays: 0,
-          createdAt: timestamp,
-          updatedAt: timestamp
-        });
-      });
+      onCreateNote(result.note, result.cards);
+      showToast(`Nota e ${result.cards.length} flashcard(s) criados com sucesso no DynamoDB da AWS!`, "success");
+      reset();
+    } catch (err: any) {
+      showToast(`Erro ao salvar na AWS: ${err.message}`, "error");
     }
-
-    if (apiMode === "aws" && apiUrl) {
-      try {
-        const token = await getAuthSessionToken();
-        const response = await fetch(`${apiUrl}/notes`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": token ? `Bearer ${token}` : "Bearer SIMULATED_TOKEN",
-            "X-User-Id": userId
-          },
-          body: JSON.stringify({
-            deck_id: newNote.deckId,
-            note_type: newNote.noteType,
-            fields: newNote.fields,
-            tags: newNote.tags
-          })
-        });
-
-        if (!response.ok) throw new Error();
-        const result = await response.json();
-        
-        // Converter chaves snake_case da API Python para camelCase do TypeScript/Next.js
-        const noteMapped: Note = {
-          noteId: result.note.note_id,
-          deckId: result.note.deck_id,
-          noteType: result.note.note_type,
-          fields: result.note.fields,
-          tags: result.note.tags,
-          createdAt: result.note.created_at,
-          updatedAt: result.note.updated_at
-        };
-        const cardsMapped: Card[] = (result.cards || []).map((c: any) => ({
-          cardId: c.card_id,
-          noteId: c.note_id,
-          deckId: c.deck_id,
-          cardOrdinal: c.card_ordinal,
-          state: c.state,
-          stability: c.stability,
-          difficulty: c.difficulty,
-          dueDate: c.due_date,
-          lastReviewDate: c.last_review_date,
-          scheduledDays: c.scheduled_days,
-          createdAt: c.created_at,
-          updatedAt: c.updated_at
-        }));
-
-        onCreateNote(noteMapped, cardsMapped);
-        saveNoteLocally(noteMapped, cardsMapped);
-      } catch (err) {
-        showToast("Falha de rede com Lambda. Salvando localmente.", "error");
-        onCreateNote(newNote, derivedCards);
-        saveNoteLocally(newNote, derivedCards);
-      }
-    } else {
-      onCreateNote(newNote, derivedCards);
-      saveNoteLocally(newNote, derivedCards);
-    }
-  };
-
-  const saveNoteLocally = (note: Note, cards: Card[]) => {
-    const localNotesStr = localStorage.getItem("ultra_notes");
-    const localCardsStr = localStorage.getItem("ultra_cards");
-
-    const notes: Note[] = localNotesStr ? JSON.parse(localNotesStr) : [];
-    const localCards: Card[] = localCardsStr ? JSON.parse(localCardsStr) : [];
-
-    notes.push(note);
-    localCards.push(...cards);
-
-    localStorage.setItem("ultra_notes", JSON.stringify(notes));
-    localStorage.setItem("ultra_cards", JSON.stringify(localCards));
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-text-primary">Criar Novo Flashcard</h2>
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto pb-12 animate-fade-in">
+      <div className="mb-2">
+        <h1 className="text-2xl md:text-3xl font-black text-text-primary tracking-tight">Criar Novo Flashcard</h1>
         <p className="text-xs text-text-secondary mt-1">
-          Uma única nota física pode conter múltiplos cartões de estudo derivados (ex: Reverso, Cloze).
+          Uma única nota no DynamoDB pode gerar múltiplos cartões de estudo derivados (ex: Reverso, Cloze).
         </p>
       </div>
 
-      <div className="bg-bg-card border border-border-color rounded-2xl p-8 max-w-2xl">
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+      <div className="bg-bg-card border border-border-color rounded-3xl p-8 shadow-xl">
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
           
-          <div className="flex gap-5">
-            {/* Baralho */}
-            <div className="flex-1 flex flex-col gap-2">
-              <label className="text-xs font-bold text-text-secondary tracking-wider">Nome do Baralho (Deck)</label>
-              <input 
-                type="text" 
-                placeholder="Ex: ingles_avancado, enem_biologia"
-                {...register("deckId")}
-                className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300"
-              />
-              {errors.deckId && <span className="text-xs text-again">{errors.deckId.message}</span>}
-            </div>
+          {/* Deck ID */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-text-secondary tracking-wider">Nome do Baralho (Deck)</label>
+            <input 
+              {...register("deckId")}
+              placeholder="Ex: vocabulario, enem, databricks..."
+              className="bg-bg-input border border-border-color text-text-primary px-5 py-3.5 rounded-2xl outline-none text-sm focus:border-accent-purple focus:bg-bg-input-focus transition-all duration-300"
+            />
+            {errors.deckId && <span className="text-again text-xs font-semibold">{errors.deckId.message}</span>}
+          </div>
 
-            {/* Tipo de Nota */}
-            <div className="flex-1 flex flex-col gap-2">
-              <label className="text-xs font-bold text-text-secondary tracking-wider">Tipo de Nota</label>
-              <select 
-                {...register("noteType")}
-                className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300 cursor-pointer"
-              >
-                <option value="BASIC">Básico (Frente e Verso)</option>
-                <option value="BASIC_REVERSED">Básico e Reverso (Gera 2 cards)</option>
-                <option value="CLOZE">Cloze Deletion (Ocultação de texto)</option>
-                <option value="TYPE_ANSWER">Digitar Resposta</option>
-                <option value="IMAGE_OCCLUSION">Oclusão de Imagem</option>
-              </select>
+          {/* Tipo de Nota */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-text-secondary tracking-wider">Tipo de Nota</label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {[
+                { id: "BASIC", label: "Básico (Frente/Verso)", desc: "1 Cartão gerado" },
+                { id: "BASIC_REVERSED", label: "Básico & Invertido", desc: "2 Cartões gerados" },
+                { id: "CLOZE", label: "Oclusão (Cloze {{c1::...}})", desc: "N Cartões por lacuna" },
+                { id: "TYPE_ANSWER", label: "Resposta Digitada", desc: "1 Cartão de digitação" },
+              ].map((type) => (
+                <button
+                  type="button"
+                  key={type.id}
+                  onClick={() => setValue("noteType", type.id as any)}
+                  className={`p-4 rounded-2xl border text-left flex flex-col gap-1 cursor-pointer transition-all duration-200 ${
+                    selectedNoteType === type.id 
+                      ? "border-accent-purple bg-accent-purple/15 text-text-primary shadow-md shadow-accent-purple/10" 
+                      : "border-border-color bg-bg-input text-text-secondary hover:border-text-secondary"
+                  }`}
+                >
+                  <span className="text-xs font-bold">{type.label}</span>
+                  <span className="text-[10px] opacity-75">{type.desc}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Campos Dinâmicos baseados no tipo de nota */}
-          <div className="flex flex-col gap-5">
-            {selectedNoteType === "CLOZE" ? (
-              <>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold text-text-secondary tracking-wider">Texto com Ocultações (Frente)</label>
-                  <textarea 
-                    rows={4}
-                    placeholder="Ex: O {{c1::Amazon Bedrock}} é um serviço gerenciado que disponibiliza {{c2::modelos de fundação}}."
-                    {...register("front")}
-                    className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300 resize-y"
-                  />
-                  {errors.front && <span className="text-xs text-again">{errors.front.message}</span>}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold text-text-secondary tracking-wider">Dica extra (Opcional - exibida no Verso)</label>
-                  <textarea 
-                    rows={2}
-                    placeholder="Ex: Nome da nuvem AWS"
-                    {...register("back")}
-                    className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300 resize-y"
-                  />
-                  {errors.back && <span className="text-xs text-again">{errors.back.message}</span>}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold text-text-secondary tracking-wider">Frente (Pergunta / Termo)</label>
-                  <textarea 
-                    rows={3}
-                    placeholder="Ex: Ephemeral"
-                    {...register("front")}
-                    className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300 resize-y"
-                  />
-                  {errors.front && <span className="text-xs text-again">{errors.front.message}</span>}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold text-text-secondary tracking-wider">Verso (Resposta / Definição)</label>
-                  <textarea 
-                    rows={3}
-                    placeholder="Ex: Efêmero / Passageiro"
-                    {...register("back")}
-                    className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300 resize-y"
-                  />
-                  {errors.back && <span className="text-xs text-again">{errors.back.message}</span>}
-                </div>
-              </>
-            )}
+          {/* Frente / Pergunta */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-text-secondary tracking-wider">
+              {selectedNoteType === "CLOZE" ? "Texto com Cloze (Use {{c1::palavra}})" : "Frente (Pergunta / Termo)"}
+            </label>
+            <textarea 
+              {...register("front")}
+              rows={4}
+              placeholder={selectedNoteType === "CLOZE" ? "A {{c1::mitocôndria}} é responsável pela síntese de {{c2::ATP}}." : "Ex: O que é a Medallion Architecture?"}
+              className="bg-bg-input border border-border-color text-text-primary px-5 py-3.5 rounded-2xl outline-none text-sm focus:border-accent-purple focus:bg-bg-input-focus transition-all duration-300 font-sans resize-none"
+            />
+            {errors.front && <span className="text-again text-xs font-semibold">{errors.front.message}</span>}
+          </div>
+
+          {/* Verso / Resposta */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-text-secondary tracking-wider">
+              {selectedNoteType === "CLOZE" ? "Notas Extras / Explicação" : "Verso (Resposta / Definição)"}
+            </label>
+            <textarea 
+              {...register("back")}
+              rows={3}
+              placeholder="Ex: Padrão que organiza os dados em Bronze, Silver e Gold."
+              className="bg-bg-input border border-border-color text-text-primary px-5 py-3.5 rounded-2xl outline-none text-sm focus:border-accent-purple focus:bg-bg-input-focus transition-all duration-300 font-sans resize-none"
+            />
+            {errors.back && <span className="text-again text-xs font-semibold">{errors.back.message}</span>}
           </div>
 
           {/* Tags */}
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-bold text-text-secondary tracking-wider">Tags (separadas por vírgula)</label>
+            <label className="text-xs font-bold text-text-secondary tracking-wider">Tags (Separadas por vírgula)</label>
             <input 
-              type="text" 
-              placeholder="Ex: vocabulario, ingles, adjetivos"
               {...register("tags")}
-              className="bg-bg-input border border-border-color text-text-primary px-4 py-3 rounded-xl outline-none text-sm focus:border-accent-blue focus:bg-bg-input-focus transition-all duration-300"
+              placeholder="databricks, spark, data-engineering"
+              className="bg-bg-input border border-border-color text-text-primary px-5 py-3.5 rounded-2xl outline-none text-sm focus:border-accent-purple focus:bg-bg-input-focus transition-all duration-300"
             />
           </div>
 
-          {/* Form Actions */}
-          <div className="flex justify-end gap-3 mt-6 border-t border-border-color pt-6">
+          {/* Botões de Ação */}
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-border-color/60">
             <button 
               type="button" 
               onClick={onCancel}
-              className="bg-transparent border border-border-color text-text-secondary hover:text-text-primary hover:bg-white/4 px-6 py-2.5 rounded-full text-xs font-bold cursor-pointer transition-all duration-300"
+              className="px-6 py-3 rounded-2xl border border-border-color text-text-secondary hover:text-text-primary text-xs font-bold cursor-pointer transition-all duration-200"
             >
               Cancelar
             </button>
             <button 
-              type="submit" 
-              className="bg-accent-blue hover:bg-accent-blue/90 text-white font-bold px-6 py-2.5 rounded-full text-xs cursor-pointer shadow-lg shadow-accent-blue/20 transition-all duration-300 flex items-center gap-2"
+              type="submit"
+              className="bg-gradient-to-r from-accent-purple to-purple-700 hover:opacity-95 text-white font-bold text-xs px-8 py-3.5 rounded-2xl shadow-lg shadow-accent-purple/20 cursor-pointer transition-all duration-300 flex items-center gap-2"
             >
-              <span className="material-symbols-outlined text-base">save</span>
-              <span>Salvar Nota e Cartões</span>
+              <span className="material-symbols-outlined text-lg">add_circle</span>
+              <span>Criar Flashcard na AWS</span>
             </button>
           </div>
 

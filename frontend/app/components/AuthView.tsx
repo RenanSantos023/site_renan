@@ -5,13 +5,12 @@ import { signInUser, signUpUser, confirmUserSignUp, getAuthSessionToken } from '
 
 interface AuthViewProps {
   onAuthSuccess: (userEmail: string, token: string) => void;
-  onSwitchToOffline: () => void;
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
 
 type AuthMode = 'signin' | 'signup' | 'confirm';
 
-export default function AuthView({ onAuthSuccess, onSwitchToOffline, showToast }: AuthViewProps) {
+export default function AuthView({ onAuthSuccess, showToast }: AuthViewProps) {
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -356,19 +355,6 @@ export default function AuthView({ onAuthSuccess, onSwitchToOffline, showToast }
             </div>
           </form>
         )}
-
-        {/* Fallback to Offline Simulator */}
-        <div className="mt-8 pt-6 border-t border-border-color/60 text-center flex flex-col gap-2">
-          <p className="text-xs text-text-secondary">Prefere testar sem autenticação na nuvem?</p>
-          <button
-            type="button"
-            onClick={onSwitchToOffline}
-            className="text-xs text-accent-blue hover:text-accent-blue/80 font-semibold cursor-pointer underline flex items-center justify-center gap-1"
-          >
-            <span className="material-symbols-outlined text-sm">offline_bolt</span>
-            <span>Alternar para Modo Offline (LocalStorage)</span>
-          </button>
-        </div>
       </div>
     </div>
   );

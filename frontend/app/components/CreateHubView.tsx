@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import type { Note, Card } from "../../amplify/data/resource";
-import { getAuthSessionToken } from "../amplify-client";
+import { apiGenerateAiCards } from "../../utils/api";
 
 interface CreateHubViewProps {
   showToast: (msg: string, type: "success" | "error" | "info") => void;
@@ -70,43 +70,30 @@ export default function CreateHubView({
     }
 
     setLoading(true);
-    const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
-    const apiUrl = localStorage.getItem("ultra_api_url") || "";
-    const userId = localStorage.getItem("ultra_user_id") || "usr_dev_default";
 
-    if (apiMode === "aws" && apiUrl) {
-      try {
-        const token = await getAuthSessionToken();
-        const response = await fetch(`${apiUrl}/ai/generate-cards`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": token ? `Bearer ${token}` : "Bearer SIMULATED_TOKEN",
-            "X-User-Id": userId
-          },
-          body: JSON.stringify({
-            text: contentInput,
-            target_deck_id: deckId.trim().toLowerCase()
-          })
-        });
+    try {
+      const generated = await apiGenerateAiCards({
+        sourceType: (sourceType.toUpperCase() as any) || "TEXT",
+        content: contentInput,
+        deckId: deckId.trim().toLowerCase()
+      });
 
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        const extracted = (data.generated_notes || []).map((n: any) => ({
-          Front: n.fields?.Front || "Pergunta gerada",
-          Back: n.fields?.Back || "Resposta gerada",
-          noteType: n.note_type || "BASIC"
+      if (generated && generated.length > 0) {
+        const extracted = generated.map((n: any) => ({
+          Front: n.front || n.Front || "Pergunta gerada",
+          Back: n.back || n.Back || "Resposta gerada",
+          noteType: n.type || n.noteType || "BASIC"
         }));
         setGeneratedPreview(extracted);
-      } catch {
-        showToast("Simulando extração de IA via Amazon Bedrock localmente.", "info");
+        showToast(`${extracted.length} flashcards gerados via Amazon Bedrock!`, "success");
+      } else {
         simulateAiGeneration();
       }
-    } else {
+    } catch {
       simulateAiGeneration();
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const simulateAiGeneration = () => {

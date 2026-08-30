@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import HomeView from "./HomeView";
@@ -11,8 +11,15 @@ import CreateHubView from "./CreateHubView";
 import SettingsView from "./SettingsView";
 import AuthView from "./AuthView";
 import ToastContainer, { Toast } from "./Toast";
-import type { Note, Card } from "../../amplify/data/resource";
-import { getAmplifyClient, getCurrentAuthenticatedUser, signOutUser, getAuthSessionToken } from "../amplify-client";
+import type { Note, Card, Deck, AnalyticsSummaryResponse } from "../../amplify/data/resource";
+import { getCurrentAuthenticatedUser, signOutUser, configureAmplifyAuth } from "../amplify-client";
+
+import { 
+  apiFetchDecks, 
+  apiFetchDueCards, 
+  apiFetchAnalyticsSummary, 
+  apiCreateBatchNotes 
+} from "../../utils/api";
 
 interface DashboardProps {
   initialNotes: Note[];
@@ -22,6 +29,10 @@ interface DashboardProps {
 export default function Dashboard({ initialNotes, initialCards }: DashboardProps) {
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const [cards, setCards] = useState<Card[]>(initialCards);
+  const [decks, setDecks] = useState<Deck[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsSummaryResponse | null>(null);
+  const [loadingData, setLoadingData] = useState<boolean>(true);
+
   const [activeTab, setActiveTab] = useState<string>("home");
   const [globalSearch, setGlobalSearch] = useState<string>("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -30,35 +41,55 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
-  // Estados de Autenticação
+  // Estados de Autenticação com Amazon Cognito
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
-  const [isAwsMode, setIsAwsMode] = useState<boolean>(false);
 
-  // Verificar status de autenticação e modo ao montar
+  // Função centralizada para recarregar dados diretamente do API Gateway / DynamoDB
+  const refreshAllData = useCallback(async () => {
+    try {
+      setLoadingData(true);
+      const [decksRes, dueCardsRes, analyticsRes] = await Promise.allSettled([
+        apiFetchDecks(),
+        apiFetchDueCards(),
+        apiFetchAnalyticsSummary()
+      ]);
+
+      if (decksRes.status === "fulfilled") {
+        setDecks(decksRes.value);
+      }
+
+      if (dueCardsRes.status === "fulfilled") {
+        setCards(dueCardsRes.value.cards);
+        setNotes(dueCardsRes.value.notes);
+      }
+
+      if (analyticsRes.status === "fulfilled") {
+        setAnalytics(analyticsRes.value);
+      }
+    } catch (err) {
+      console.warn("Aviso ao sincronizar dados com o API Gateway:", err);
+    } finally {
+      setLoadingData(false);
+    }
+  }, []);
+
+  // Verificar status de autenticação no Cognito ao montar
   useEffect(() => {
     const checkAuthStatus = async () => {
-      const mode = localStorage.getItem("ultra_api_mode") || "mock";
-      const isAws = mode === "aws";
-      setIsAwsMode(isAws);
-
-      if (isAws) {
-        try {
-          const user = await getCurrentAuthenticatedUser();
-          if (user) {
-            setIsAuthenticated(true);
-            setUserEmail(user.signInDetails?.loginId || user.username || "Usuário AWS");
-          } else {
-            setIsAuthenticated(false);
-            setUserEmail(null);
-          }
-        } catch (e) {
+      configureAmplifyAuth();
+      try {
+        const user = await getCurrentAuthenticatedUser();
+        if (user) {
+          setIsAuthenticated(true);
+          setUserEmail(user.signInDetails?.loginId || user.username || "Usuário AWS");
+        } else {
           setIsAuthenticated(false);
           setUserEmail(null);
         }
-      } else {
-        setIsAuthenticated(true);
+      } catch (e) {
+        setIsAuthenticated(false);
         setUserEmail(null);
       }
       setAuthChecking(false);
@@ -67,43 +98,25 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
     checkAuthStatus();
   }, []);
 
-  // Carregar dados salvos no LocalStorage (modo Mock) ou do backend ao montar/mudar de aba
+  // Carregar dados do API Gateway ao inicializar e ao trocar de aba principal
   useEffect(() => {
-    if (authChecking) return;
-
-    const storedNotes = localStorage.getItem("ultra_notes");
-    const storedCards = localStorage.getItem("ultra_cards");
-    if (storedNotes) {
-      try {
-        setNotes(JSON.parse(storedNotes));
-      } catch {}
+    if (!authChecking && isAuthenticated) {
+      refreshAllData();
     }
-    if (storedCards) {
-      try {
-        setCards(JSON.parse(storedCards));
-      } catch {}
-    }
-  }, [activeTab, authChecking, isAuthenticated]);
+  }, [authChecking, isAuthenticated, activeTab, refreshAllData]);
 
   const handleLogout = async () => {
     await signOutUser();
     setIsAuthenticated(false);
     setUserEmail(null);
-    showToast("Sessão encerrada com sucesso.", "info");
+    showToast("Sessão encerrada com sucesso no Amazon Cognito.", "info");
   };
 
-  const handleAuthSuccess = (email: string, token: string) => {
+  const handleAuthSuccess = (email: string) => {
     setIsAuthenticated(true);
     setUserEmail(email);
     showToast(`Bem-vindo, ${email}!`, "success");
-  };
-
-  const handleSwitchToOffline = () => {
-    localStorage.setItem("ultra_api_mode", "mock");
-    setIsAwsMode(false);
-    setIsAuthenticated(true);
-    setUserEmail(null);
-    showToast("Modo Offline ativado com sucesso.", "info");
+    refreshAllData();
   };
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
@@ -119,81 +132,37 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Contagem de cards devidos (NEW ou dueDate expirada)
+  // Contagem de cards devidos
   const getDueCardsCount = () => {
     const now = new Date();
     return cards.filter(c => !c.dueDate || new Date(c.dueDate) <= now).length;
   };
 
   const handleCreateNotesBatch = async (newNotes: Note[], newCards: Card[]) => {
-    // 1. Atualização otimista no estado e LocalStorage
-    setNotes(prev => {
-      const updated = [...prev, ...newNotes];
-      localStorage.setItem("ultra_notes", JSON.stringify(updated));
-      return updated;
-    });
-    setCards(prev => {
-      const updated = [...prev, ...newCards];
-      localStorage.setItem("ultra_cards", JSON.stringify(updated));
-      return updated;
-    });
-
-    // 2. Se estiver no modo AWS, sincronizar via API REST (DynamoDB AnkiSaaS-dev)
-    const apiMode = localStorage.getItem("ultra_api_mode") || "mock";
-    const apiUrl = localStorage.getItem("ultra_api_url") || "";
-    if (apiMode === "aws" && apiUrl) {
-      try {
-        const token = await getAuthSessionToken();
-        const payload = {
-          notes: newNotes.map(n => ({
-            deck_id: n.deckId,
-            note_type: n.noteType || "BASIC",
-            fields: n.fields,
-            tags: n.tags || []
-          }))
-        };
-        const res = await fetch(`${apiUrl}/notes/batch`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": token ? `Bearer ${token}` : ""
-          },
-          body: JSON.stringify(payload)
-        });
-
-        if (res.ok) {
-          showToast("Cartões persistidos com sucesso na tabela DynamoDB da AWS!", "success");
-        } else {
-          console.warn("Aviso ao salvar no DynamoDB:", await res.text());
-        }
-      } catch (err) {
-        console.error("Erro de comunicação com a API AWS:", err);
-      }
+    try {
+      await apiCreateBatchNotes(newNotes.map(n => ({
+        deck_id: n.deckId,
+        note_type: n.noteType || "BASIC",
+        fields: n.fields,
+        tags: n.tags || []
+      })));
+      showToast("Cartões persistidos com sucesso no DynamoDB da AWS!", "success");
+      await refreshAllData();
+    } catch (err: any) {
+      showToast(`Erro ao gravar no DynamoDB: ${err.message}`, "error");
     }
 
     setActiveTab("decks");
   };
 
   const handleReviewCardLocal = async (cardId: string, updatedCardData: Partial<Card>) => {
-    setCards(prev => {
-      const updated = prev.map(c => c.cardId === cardId ? { ...c, ...updatedCardData } as Card : c);
-      localStorage.setItem("ultra_cards", JSON.stringify(updated));
-      return updated;
-    });
+    setCards(prev => prev.map(c => c.cardId === cardId ? { ...c, ...updatedCardData } as Card : c));
   };
 
   const handleDeleteNote = async (noteId: string) => {
-    setNotes(prev => {
-      const updated = prev.filter(n => n.noteId !== noteId);
-      localStorage.setItem("ultra_notes", JSON.stringify(updated));
-      return updated;
-    });
-    setCards(prev => {
-      const updated = prev.filter(c => c.noteId !== noteId);
-      localStorage.setItem("ultra_cards", JSON.stringify(updated));
-      return updated;
-    });
-    showToast("Nota e flashcards excluídos.", "info");
+    setNotes(prev => prev.filter(n => n.noteId !== noteId));
+    setCards(prev => prev.filter(c => c.noteId !== noteId));
+    showToast("Nota excluída no acervo.", "info");
   };
 
   if (authChecking) {
@@ -203,18 +172,18 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
           <span className="material-symbols-outlined text-accent-purple text-4xl animate-spin">
             progress_activity
           </span>
-          <span className="text-sm font-semibold text-text-secondary">Carregando UltraCards...</span>
+          <span className="text-sm font-semibold text-text-secondary">Conectando ao Amazon Cognito & AWS Cloud...</span>
         </div>
       </div>
     );
   }
 
-  if (isAwsMode && !isAuthenticated) {
+  // Se não autenticado no Cognito, exibe a tela de login/cadastro da AWS
+  if (!isAuthenticated) {
     return (
       <>
         <AuthView 
           onAuthSuccess={handleAuthSuccess}
-          onSwitchToOffline={handleSwitchToOffline}
           showToast={showToast}
         />
         <ToastContainer toasts={toasts} removeToast={removeToast} />
@@ -268,7 +237,9 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
             <HomeView
               notes={notes}
               cards={cards}
-              userName={userEmail ? userEmail.split("@")[0] : "José"}
+              decks={decks}
+              analytics={analytics}
+              userName={userEmail ? userEmail.split("@")[0] : "Usuário"}
               onStartStudy={(deckId) => {
                 setSelectedDeckForStudy(deckId || null);
                 setActiveTab("study");
@@ -308,7 +279,10 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
               showToast={showToast}
               selectedDeckId={selectedDeckForStudy}
               onReviewCard={handleReviewCardLocal}
-              onFinished={() => setActiveTab("home")}
+              onFinished={() => {
+                refreshAllData();
+                setActiveTab("home");
+              }}
             />
           )}
 
@@ -318,7 +292,10 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
               cards={cards} 
               showToast={showToast}
               onReviewCard={handleReviewCardLocal}
-              onFinished={() => setActiveTab("decks")}
+              onFinished={() => {
+                refreshAllData();
+                setActiveTab("decks");
+              }}
               singleCardId={activeTab.replace("study-", "")}
             />
           )}
@@ -328,6 +305,7 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
             <AnalyticsView
               notes={notes}
               cards={cards}
+              analyticsData={analytics}
               onStartRecommendedStudy={() => {
                 setSelectedDeckForStudy(null);
                 setActiveTab("study");
@@ -374,4 +352,3 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
     </div>
   );
 }
-
