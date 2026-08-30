@@ -1,5 +1,5 @@
 """
-Domain models for Flashcards SaaS (Note, Card, Review, Enums, Batch, Decks, Preferences).
+Domain models for Flashcards SaaS (Note, Card, Review, Enums, Batch, Decks, Preferences, StudyLog, Analytics, AI Jobs).
 """
 
 from enum import Enum, IntEnum
@@ -23,8 +23,9 @@ class CardState(str, Enum):
     NEW = "NEW"
     LEARNING = "LEARNING"
     REVIEW = "REVIEW"
-    DIFFICULT = "DIFFICULT"
+    RELEARNING = "RELEARNING"
     MASTERED = "MASTERED"
+    DIFFICULT = "DIFFICULT"
 
 
 class Rating(IntEnum):
@@ -32,6 +33,31 @@ class Rating(IntEnum):
     HARD = 2
     GOOD = 3
     EASY = 4
+
+
+class StudyMode(str, Enum):
+    REVIEW = "REVIEW"
+    QUIZ = "QUIZ"
+    WRITTEN_ANSWER = "WRITTEN_ANSWER"
+    GUIDED_TUTOR = "GUIDED_TUTOR"
+
+
+class AiSourceType(str, Enum):
+    TEXT = "TEXT"
+    FILE = "FILE"
+    URL = "URL"
+    YOUTUBE = "YOUTUBE"
+    IMAGE = "IMAGE"
+    SCAN = "SCAN"
+    VOICE = "VOICE"
+    MANUAL = "MANUAL"
+
+
+class AiJobStatus(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 def generate_id(prefix: str) -> str:
@@ -43,6 +69,10 @@ def current_iso_time() -> str:
     """Returns current UTC timestamp in ISO-8601 format."""
     return datetime.now(timezone.utc).isoformat()
 
+
+# -----------------------------------------------------------------------------
+# Notes & Cards Models
+# -----------------------------------------------------------------------------
 
 class NoteCreateRequest(BaseModel):
     deck_id: str
@@ -75,9 +105,12 @@ class Card(BaseModel):
     state: CardState = CardState.NEW
     stability: float = 0.0
     difficulty: float = 0.0
+    elapsed_days: int = 0
+    scheduled_days: int = 0
+    reps: int = 0
+    lapses: int = 0
     due_date: str = Field(default_factory=current_iso_time)
     last_review_date: Optional[str] = None
-    scheduled_days: int = 0
     created_at: str = Field(default_factory=current_iso_time)
     updated_at: str = Field(default_factory=current_iso_time)
 
@@ -85,7 +118,9 @@ class Card(BaseModel):
 class ReviewRequest(BaseModel):
     card_id: str
     rating: Rating
+    study_mode: StudyMode = StudyMode.REVIEW
     review_time_ms: Optional[int] = 0
+    written_answer: Optional[str] = None
 
 
 class ReviewResponse(BaseModel):
@@ -95,27 +130,113 @@ class ReviewResponse(BaseModel):
     difficulty: float
     next_review: str
     interval_days: int
+    ai_feedback: Optional[str] = None
+    ai_score_percent: Optional[int] = None
 
+
+# -----------------------------------------------------------------------------
+# Decks Models
+# -----------------------------------------------------------------------------
 
 class DeckMetadata(BaseModel):
     user_id: str
     deck_id: str
     title: Optional[str] = None
     description: Optional[str] = None
+    icon: Optional[str] = "BookOpen"
+    color: Optional[str] = "#8b5cf6"
+    category: Optional[str] = "Geral"
     is_favorite: bool = False
     tags: List[str] = Field(default_factory=list)
+    total_notes: int = 0
+    total_cards: int = 0
     created_at: str = Field(default_factory=current_iso_time)
     updated_at: str = Field(default_factory=current_iso_time)
 
 
+# -----------------------------------------------------------------------------
+# User Profile & Preferences Models
+# -----------------------------------------------------------------------------
+
 class UserPreferences(BaseModel):
     user_id: str
+    display_name: Optional[str] = None
+    email: Optional[str] = None
     daily_goal: int = 20
     desired_retention: float = 0.90
     max_interval_days: int = 36500
+    fsrs_weights: Optional[List[float]] = None
     language: str = "pt-BR"
     updated_at: str = Field(default_factory=current_iso_time)
 
+
+# -----------------------------------------------------------------------------
+# Study History & Analytics Models
+# -----------------------------------------------------------------------------
+
+class StudyLog(BaseModel):
+    user_id: str
+    log_id: str = Field(default_factory=lambda: generate_id("log"))
+    card_id: str
+    note_id: Optional[str] = None
+    deck_id: str
+    rating: Rating
+    study_mode: StudyMode = StudyMode.REVIEW
+    review_duration_ms: int = 0
+    stability_before: float = 0.0
+    stability_after: float = 0.0
+    difficulty_before: float = 0.0
+    difficulty_after: float = 0.0
+    ai_score_percent: Optional[int] = None
+    created_at: str = Field(default_factory=current_iso_time)
+
+
+class DailyStats(BaseModel):
+    user_id: str
+    date: str  # YYYY-MM-DD
+    cards_studied: int = 0
+    time_spent_seconds: int = 0
+    ratings_count: Dict[str, int] = Field(default_factory=lambda: {"again": 0, "hard": 0, "good": 0, "easy": 0})
+    retention_rate: float = 0.0
+
+
+class WeakTopic(BaseModel):
+    tag: str
+    error_rate: float
+    card_count: int
+
+
+class UserAggregates(BaseModel):
+    user_id: str
+    current_streak: int = 0
+    longest_streak: int = 0
+    last_study_date: Optional[str] = None
+    total_cards_studied: int = 0
+    total_time_spent_seconds: int = 0
+    weak_topics: List[WeakTopic] = Field(default_factory=list)
+    updated_at: str = Field(default_factory=current_iso_time)
+
+
+# -----------------------------------------------------------------------------
+# AI Jobs & Multimodal Ingestion Models
+# -----------------------------------------------------------------------------
+
+class AiJob(BaseModel):
+    user_id: str
+    job_id: str = Field(default_factory=lambda: generate_id("job"))
+    deck_id: str
+    source_type: AiSourceType
+    status: AiJobStatus = AiJobStatus.PENDING
+    source_payload_or_key: str
+    generated_notes: List[Dict[str, Any]] = Field(default_factory=list)
+    error_message: Optional[str] = None
+    created_at: str = Field(default_factory=current_iso_time)
+    completed_at: Optional[str] = None
+
+
+# -----------------------------------------------------------------------------
+# Card Generation from Note Logic
+# -----------------------------------------------------------------------------
 
 def generate_cards_from_note(note: Note, now_iso: Optional[str] = None) -> List[Card]:
     """

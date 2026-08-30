@@ -153,7 +153,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.create_note.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Cria notas e gera cartões derivados
       Policies:
         - DynamoDBCrudPolicy:
@@ -170,7 +170,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.batch_create_notes.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Criação em lote de notas e cartões (JSON, CSV, Cloze)
       Policies:
         - DynamoDBCrudPolicy:
@@ -187,7 +187,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.ai_generate_cards.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Mineração síncrona com Amazon Bedrock (Quick Start, Texto, Links, YouTube)
       Policies:
         - Statement:
@@ -219,7 +219,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.document_processor.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Upload de documentos via S3 presigned URL e consulta de jobs
       Policies:
         - S3CrudPolicy:
@@ -247,7 +247,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.get_due_cards.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Consulta cartões vencidos com paginação e filtro de deck
       Policies:
         - DynamoDBReadPolicy:
@@ -264,7 +264,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.process_review.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Processa revisão com FSRS v4.5 e registra histórico de logs
       Policies:
         - DynamoDBCrudPolicy:
@@ -281,7 +281,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.ai_study_tutor.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Tutor IA, avaliação de resposta aberta, quiz e savepoints
       Policies:
         - DynamoDBCrudPolicy:
@@ -336,7 +336,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.analytics_summary.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Cálculo de streak diário, heatmap, acurácia e weak topics
       Policies:
         - DynamoDBReadPolicy:
@@ -353,7 +353,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.manage_decks.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: CRUD completo de decks, métricas consolidadas e compartilhamento
       Policies:
         - DynamoDBCrudPolicy:
@@ -400,7 +400,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.user_preferences.lambda_handler
-      CodeUri: ../src/
+      CodeUri: ../.build_src/
       Description: Preferências do usuário e parâmetros do algoritmo FSRS
       Policies:
         - DynamoDBCrudPolicy:

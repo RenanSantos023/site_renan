@@ -1,0 +1,491 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'ultra-flashcards - Full Serverless Engine & Generative AI Infrastructure
+
+  '
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 256
+    Runtime: python3.12
+    Architectures:
+    - arm64
+    Environment:
+      Variables:
+        TABLE_NAME:
+          Ref: AnkiSaaSTable
+        DOCUMENTS_BUCKET:
+          Ref: DocumentsBucket
+        POWERTOOLS_SERVICE_NAME: fsrs-engine
+        LOG_LEVEL: INFO
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Environment stage (dev, staging, prod)
+Resources:
+  AnkiSaaSTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: AnkiSaaS-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      - AttributeName: GSI1PK
+        AttributeType: S
+      - AttributeName: GSI1SK
+        AttributeType: S
+      KeySchema:
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: GSI1
+        KeySchema:
+        - AttributeName: GSI1PK
+          KeyType: HASH
+        - AttributeName: GSI1SK
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+    Metadata:
+      SamResourceId: AnkiSaaSTable
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: ultra-flashcards-docs-${Stage}-${AWS::AccountId}
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders:
+          - '*'
+          AllowedMethods:
+          - GET
+          - PUT
+          - POST
+          - HEAD
+          AllowedOrigins:
+          - '*'
+          MaxAge: 3600
+    Metadata:
+      SamResourceId: DocumentsBucket
+  DocumentProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::Sub: ultra-flashcards-doc-queue-${Stage}
+      VisibilityTimeout: 90
+    Metadata:
+      SamResourceId: DocumentProcessingQueue
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName:
+        Fn::Sub: ultra-flashcards-user-pool-${Stage}
+      UsernameAttributes:
+      - email
+      AutoVerifiedAttributes:
+      - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+    Metadata:
+      SamResourceId: CognitoUserPool
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName:
+        Fn::Sub: ultra-flashcards-client-${Stage}
+      UserPoolId:
+        Ref: CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+      - ALLOW_USER_PASSWORD_AUTH
+      - ALLOW_REFRESH_TOKEN_AUTH
+      - ALLOW_USER_SRP_AUTH
+    Metadata:
+      SamResourceId: CognitoUserPoolClient
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName:
+        Ref: Stage
+      CorsConfiguration:
+        AllowMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        AllowHeaders:
+        - Authorization
+        - Content-Type
+        - X-Amz-Date
+        - X-Api-Key
+        - X-Amz-Security-Token
+        - X-User-Id
+        AllowOrigins:
+        - '*'
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              Audience:
+              - Ref: CognitoUserPoolClient
+              Issuer:
+                Fn::Sub: https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
+    Metadata:
+      SamResourceId: HttpApi
+  CreateNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.create_note.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Cria notas e gera cart\xF5es derivados"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        CreateNote:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /notes
+            Method: POST
+    Metadata:
+      SamResourceId: CreateNoteFunction
+  BatchCreateNotesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.batch_create_notes.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Cria\xE7\xE3o em lote de notas e cart\xF5es (JSON, CSV, Cloze)"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        BatchCreateNotes:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /notes/batch
+            Method: POST
+    Metadata:
+      SamResourceId: BatchCreateNotesFunction
+  AiGenerateCardsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.ai_generate_cards.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Minera\xE7\xE3o s\xEDncrona com Amazon Bedrock (Quick Start, Texto,\
+        \ Links, YouTube)"
+      Policies:
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          Resource: '*'
+      Events:
+        GenerateCards:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /ai/generate-cards
+            Method: POST
+        ScrapeLink:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /ai/scrape-link
+            Method: POST
+        YoutubeTranscript:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /ai/youtube-transcript
+            Method: POST
+    Metadata:
+      SamResourceId: AiGenerateCardsFunction
+  DocumentProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.document_processor.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: Upload de documentos via S3 presigned URL e consulta de jobs
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Fn::Sub: ultra-flashcards-docs-${Stage}-${AWS::AccountId}
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        GetPresignedUrl:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /documents/presigned-url
+            Method: POST
+        GetJobStatus:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /documents/jobs/{jobId}
+            Method: GET
+    Metadata:
+      SamResourceId: DocumentProcessorFunction
+  GetDueCardsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.get_due_cards.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Consulta cart\xF5es vencidos com pagina\xE7\xE3o e filtro de deck"
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        GetDueCards:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/due
+            Method: GET
+    Metadata:
+      SamResourceId: GetDueCardsFunction
+  ProcessReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.process_review.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Processa revis\xE3o com FSRS v4.5 e registra hist\xF3rico de logs"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        ProcessReview:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/review
+            Method: POST
+    Metadata:
+      SamResourceId: ProcessReviewFunction
+  AiStudyTutorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.ai_study_tutor.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Tutor IA, avalia\xE7\xE3o de resposta aberta, quiz e savepoints"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          Resource: '*'
+      Events:
+        EvaluateAnswer:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/evaluate-answer
+            Method: POST
+        AiAction:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/ai-action
+            Method: POST
+        GenerateQuiz:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/generate-quiz
+            Method: POST
+        AdaptiveSuggestions:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/adaptive-suggestions
+            Method: POST
+        PostSavepoint:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/session-savepoint
+            Method: POST
+        GetSavepoint:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /study/session-savepoint
+            Method: GET
+    Metadata:
+      SamResourceId: AiStudyTutorFunction
+  AnalyticsSummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.analytics_summary.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "C\xE1lculo de streak di\xE1rio, heatmap, acur\xE1cia e weak topics"
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        GetAnalyticsSummary:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /analytics/summary
+            Method: GET
+    Metadata:
+      SamResourceId: AnalyticsSummaryFunction
+  ManageDecksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.manage_decks.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "CRUD completo de decks, m\xE9tricas consolidadas e compartilhamento"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        GetDecks:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /decks
+            Method: GET
+        CreateDeck:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /decks
+            Method: POST
+        UpdateDeck:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /decks/{deckId}
+            Method: PUT
+        DeleteDeck:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /decks/{deckId}
+            Method: DELETE
+        ShareDeck:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /decks/{deckId}/share
+            Method: POST
+        ImportSharedDeck:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /decks/import-shared
+            Method: POST
+    Metadata:
+      SamResourceId: ManageDecksFunction
+  UserPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.user_preferences.lambda_handler
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-ksdjmuksvdpy/093da6cdfea9fa43f2c81bf0e6d18b47
+      Description: "Prefer\xEAncias do usu\xE1rio e par\xE2metros do algoritmo FSRS"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: AnkiSaaSTable
+      Events:
+        GetPreferences:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /user/preferences
+            Method: GET
+        UpdatePreferences:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /user/preferences
+            Method: PUT
+    Metadata:
+      SamResourceId: UserPreferencesFunction
+Outputs:
+  HttpApiUrl:
+    Description: Base URL for HTTP API
+    Value:
+      Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table
+    Value:
+      Ref: AnkiSaaSTable
+  DynamoDBTableArn:
+    Description: ARN of the DynamoDB table
+    Value:
+      Fn::GetAtt:
+      - AnkiSaaSTable
+      - Arn
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID
+    Value:
+      Ref: CognitoUserPool
+  CognitoUserPoolClientId:
+    Description: Cognito User Pool App Client ID
+    Value:
+      Ref: CognitoUserPoolClient
+  CognitoUserPoolArn:
+    Description: Cognito User Pool ARN
+    Value:
+      Fn::GetAtt:
+      - CognitoUserPool
+      - Arn

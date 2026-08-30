@@ -188,6 +188,58 @@ class DynamoRepository(BaseRepository):
             updated_at=item["updated_at"],
         )
 
+    def get_notes_by_ids(self, user_id: str, note_ids: List[str]) -> List[Note]:
+        """Fetches multiple notes by their note IDs for a given user."""
+        if not note_ids:
+            return []
+        notes = []
+        pk = self._user_pk(user_id)
+        for nid in set(note_ids):
+            sk = self._note_sk(nid)
+            resp = self.table.get_item(Key={"PK": pk, "SK": sk})
+            item = resp.get("Item")
+            if item:
+                item = decimal_to_float(item)
+                notes.append(
+                    Note(
+                        user_id=item["user_id"],
+                        note_id=item["note_id"],
+                        deck_id=item["deck_id"],
+                        note_type=NoteType(item["note_type"]),
+                        fields=item.get("fields", {}),
+                        tags=item.get("tags", []),
+                        created_at=item["created_at"],
+                        updated_at=item["updated_at"],
+                    )
+                )
+        return notes
+
+    def get_all_notes(self, user_id: str, deck_id: Optional[str] = None) -> List[Note]:
+        """Retrieves all notes belonging to a user (optionally filtered by deck)."""
+        pk = self._user_pk(user_id)
+        response = self.table.query(
+            KeyConditionExpression=Key("PK").eq(pk) & Key("SK").begins_with("NOTE#")
+        )
+        items = response.get("Items", [])
+        notes = []
+        for raw in items:
+            item = decimal_to_float(raw)
+            if deck_id and item.get("deck_id", "").lower() != deck_id.lower():
+                continue
+            notes.append(
+                Note(
+                    user_id=item["user_id"],
+                    note_id=item["note_id"],
+                    deck_id=item["deck_id"],
+                    note_type=NoteType(item["note_type"]),
+                    fields=item.get("fields", {}),
+                    tags=item.get("tags", []),
+                    created_at=item["created_at"],
+                    updated_at=item["updated_at"],
+                )
+            )
+        return notes
+
     def get_card(self, user_id: str, card_id: str) -> Optional[Card]:
         pk = self._user_pk(user_id)
         sk = self._card_sk(card_id)

@@ -1,4 +1,4 @@
-.PHONY: install test test-unit test-integration lint clean
+.PHONY: install test test-unit test-integration lint clean build deploy seed-aws
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -22,6 +22,15 @@ test-integration:
 lint:
 	$(PYTHON) -m py_compile src/**/*.py tests/**/*.py
 
+build:
+	sam build -t infra/template.yaml
+
+deploy:
+	sam build -t infra/template.yaml && sam deploy --guided
+
+seed-aws:
+	$(PYTHON) scripts/seed_dynamodb.py
+
 clean:
-	rm -rf __pycache__ .pytest_cache .coverage
+	rm -rf __pycache__ .pytest_cache .coverage .aws-sam
 	find . -type d -name "__pycache__" -exec rm -rf {} +

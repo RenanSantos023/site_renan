@@ -19,3 +19,4 @@ samconfig.toml.bak
 .DS_Store
 .vscode/
 .idea/
+.build_src

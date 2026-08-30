@@ -73,8 +73,13 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
             exclusive_start_key=exclusive_start_key,
         )
 
+        # Buscar notas físicas associadas aos cartões para renderização completa no frontend
+        note_ids = list({c.note_id for c in cards if c.note_id})
+        notes = repo.get_notes_by_ids(user_id=user_id, note_ids=note_ids)
+
         response_data = {
             "cards": [card.model_dump() for card in cards],
+            "notes": [note.model_dump() for note in notes],
             "count": len(cards),
             "next_token": encode_pagination_token(last_evaluated_key),
             "timestamp": now_iso,
