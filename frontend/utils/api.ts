@@ -17,14 +17,18 @@ import type {
 
 /**
  * Retorna a URL base configurada para a API Backend Serverless.
- * Prioridade: Variável de ambiente -> LocalStorage -> Default local.
+ * Prioridade: Variável de ambiente (.env.local) -> LocalStorage -> Default local.
  */
 export function getApiBaseUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
   if (typeof window !== 'undefined') {
     const customUrl = localStorage.getItem('ultra_api_url');
-    if (customUrl) return customUrl.replace(/\/+$/, '');
+    if (customUrl && customUrl.trim()) return customUrl.trim().replace(/\/+$/, '');
   }
-  return (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+  return 'http://localhost:3001';
 }
 
 /**
@@ -34,13 +38,17 @@ async function buildHeaders(customHeaders: Record<string, string> = {}): Promise
   const token = await getAuthSessionToken();
   const userId = typeof window !== 'undefined' ? localStorage.getItem('ultra_user_id') || 'usr_dev_default' : 'usr_dev_default';
 
-  return {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
     'X-User-Id': userId,
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...customHeaders
   };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  return headers;
 }
 
 /**
@@ -51,10 +59,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const headers = await buildHeaders(options.headers as Record<string, string>);
   const url = `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
-  const response = await fetch(url, {
-    ...options,
-    headers
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers
+    });
+  } catch (netErr: any) {
+    console.error(`Erro de conexão com o backend (${url}):`, netErr);
+    throw new Error(`Falha de conexão com a API Serverless (${url}). Verifique se a sessão Cognito está ativa e a internet está conectada.`);
+  }
 
   if (!response.ok) {
     let errorMessage = `API Error: ${response.status} ${response.statusText}`;
@@ -66,6 +80,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     } catch {
       const text = await response.text();
       if (text) errorMessage = text;
+    }
+    if (response.status === 401) {
+      errorMessage = 'Sessão expirada ou não autorizada. Por favor, faça login novamente no Cognito.';
     }
     throw new Error(errorMessage);
   }

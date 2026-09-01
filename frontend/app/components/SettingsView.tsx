@@ -24,6 +24,28 @@ export default function SettingsView({ showToast }: SettingsViewProps) {
     setRegion(storedRegion);
   }, []);
 
+  const handleResetToEnv = () => {
+    localStorage.removeItem("ultra_api_url");
+    localStorage.removeItem("ultra_cognito_user_pool_id");
+    localStorage.removeItem("ultra_cognito_client_id");
+    localStorage.removeItem("ultra_cognito_region");
+
+    const defaultUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    const defaultPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || "";
+    const defaultClientId = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || "";
+    const defaultRegion = process.env.NEXT_PUBLIC_AWS_REGION || "us-east-1";
+
+    setApiUrl(defaultUrl);
+    setUserPoolId(defaultPoolId);
+    setClientId(defaultClientId);
+    setRegion(defaultRegion);
+
+    showToast("Configurações redefinidas para o padrão do .env.local! Recarregando...", "info");
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  };
+
   const handleSave = () => {
     localStorage.setItem("ultra_api_url", apiUrl.trim());
     localStorage.setItem("ultra_cognito_user_pool_id", userPoolId.trim());
@@ -110,13 +132,24 @@ export default function SettingsView({ showToast }: SettingsViewProps) {
           </div>
         </div>
 
-        <button 
-          onClick={handleSave}
-          className="bg-gradient-to-r from-accent-purple to-purple-700 hover:opacity-95 text-white font-bold px-8 py-3.5 rounded-2xl mt-2 self-start cursor-pointer shadow-lg shadow-accent-purple/20 transition-all duration-300 flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-lg">save</span>
-          <span>Salvar Credenciais AWS</span>
-        </button>
+        <div className="flex items-center gap-3 mt-2">
+          <button 
+            onClick={handleSave}
+            className="bg-gradient-to-r from-accent-purple to-purple-700 hover:opacity-95 text-white font-bold px-8 py-3.5 rounded-2xl cursor-pointer shadow-lg shadow-accent-purple/20 transition-all duration-300 flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-lg">save</span>
+            <span>Salvar Credenciais AWS</span>
+          </button>
+
+          <button 
+            onClick={handleResetToEnv}
+            type="button"
+            className="bg-bg-card border border-border-color hover:bg-bg-input text-text-secondary hover:text-text-primary font-semibold px-6 py-3.5 rounded-2xl cursor-pointer transition-all duration-300 flex items-center gap-2 text-sm"
+          >
+            <span className="material-symbols-outlined text-lg">restart_alt</span>
+            <span>Restaurar Padrão (.env.local)</span>
+          </button>
+        </div>
 
       </div>
     </div>

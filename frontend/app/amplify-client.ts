@@ -5,11 +5,15 @@ import {
   signIn, 
   signUp, 
   confirmSignUp, 
+  resendSignUpCode,
+  resetPassword,
+  confirmResetPassword,
   signOut, 
   fetchAuthSession, 
   getCurrentUser,
   type SignInOutput,
-  type SignUpOutput
+  type SignUpOutput,
+  type ResetPasswordOutput
 } from 'aws-amplify/auth';
 
 /**
@@ -66,6 +70,29 @@ export async function confirmUserSignUp(email: string, code: string) {
   return await confirmSignUp({
     username: email.trim(),
     confirmationCode: code.trim()
+  });
+}
+
+export async function resendUserSignUpCode(email: string) {
+  configureAmplifyAuth();
+  return await resendSignUpCode({
+    username: email.trim()
+  });
+}
+
+export async function resetUserPassword(email: string): Promise<ResetPasswordOutput> {
+  configureAmplifyAuth();
+  return await resetPassword({
+    username: email.trim()
+  });
+}
+
+export async function confirmUserResetPassword(email: string, code: string, newPassword: string) {
+  configureAmplifyAuth();
+  return await confirmResetPassword({
+    username: email.trim(),
+    confirmationCode: code.trim(),
+    newPassword
   });
 }
 
