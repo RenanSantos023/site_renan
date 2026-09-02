@@ -74,8 +74,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     let errorMessage = `API Error: ${response.status} ${response.statusText}`;
     try {
       const errorBody = await response.json();
-      if (errorBody.error || errorBody.message) {
-        errorMessage = errorBody.error || errorBody.message;
+      if (errorBody.error) {
+        errorMessage = typeof errorBody.error === 'object' && errorBody.error.message
+          ? errorBody.error.message
+          : (typeof errorBody.error === 'string' ? errorBody.error : JSON.stringify(errorBody.error));
+      } else if (errorBody.message) {
+        errorMessage = errorBody.message;
       }
     } catch {
       const text = await response.text();
@@ -97,8 +101,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 export async function apiFetchDecks(): Promise<Deck[]> {
   const data = await request<{ decks: any[] }>('/decks');
   return (data.decks || []).map((d: any) => ({
-    deckId: d.deck_id || d.deckId,
-    title: d.title || 'Sem título',
+    deckId: d.deck_id || d.deckId || d.id,
+    title: d.name || d.title || 'Sem título',
     description: d.description || '',
     icon: d.icon || 'BookOpen',
     color: d.color || '#8b5cf6',
@@ -113,22 +117,45 @@ export async function apiFetchDecks(): Promise<Deck[]> {
 }
 
 export async function apiCreateDeck(deck: {
-  deck_id: string;
-  title: string;
+  name?: string;
+  title?: string;
+  deck_id?: string;
   description?: string;
   icon?: string;
   color?: string;
   category?: string;
   tags?: string[];
 }): Promise<Deck> {
+  const deckTitle = (deck.name || deck.title || '').trim();
+  const slug = deckTitle
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+  const fallbackId = slug || 'baralho';
+  const deckId = (deck.deck_id && deck.deck_id.trim()) ? deck.deck_id.trim() : fallbackId;
+
+  const payload = {
+    deck_id: deckId,
+    name: deckTitle,
+    title: deckTitle,
+    description: (deck.description || '').trim(),
+    ...(deck.icon ? { icon: deck.icon } : {}),
+    ...(deck.color ? { color: deck.color } : {}),
+    ...(deck.category ? { category: deck.category } : {}),
+    ...(deck.tags ? { tags: deck.tags } : {}),
+  };
+
   const result = await request<any>('/decks', {
     method: 'POST',
-    body: JSON.stringify(deck)
+    body: JSON.stringify(payload)
   });
+
   return {
-    deckId: result.deck_id || result.deckId || deck.deck_id,
-    title: result.title || deck.title,
-    description: result.description || deck.description,
+    deckId: result.id || result.deck_id || result.deckId || deckId,
+    title: result.name || result.title || deckTitle || 'Sem título',
+    description: result.description ?? deck.description ?? '',
     icon: result.icon || deck.icon || 'BookOpen',
     color: result.color || deck.color || '#8b5cf6',
     category: result.category || deck.category || 'Geral',
@@ -136,8 +163,8 @@ export async function apiCreateDeck(deck: {
     tags: result.tags || deck.tags || [],
     totalNotes: result.total_notes ?? 0,
     totalCards: result.total_cards ?? 0,
-    createdAt: result.created_at || new Date().toISOString(),
-    updatedAt: result.updated_at || new Date().toISOString()
+    createdAt: result.createdAt || result.created_at || new Date().toISOString(),
+    updatedAt: result.updatedAt || result.updated_at || new Date().toISOString()
   };
 }
 
@@ -208,6 +235,41 @@ export async function apiFetchDueCards(deckId?: string | null, limit: number = 5
   const queryParams = new URLSearchParams();
   if (deckId) queryParams.set('deck_id', deckId);
   if (limit) queryParams.set('limit', String(limit));
+
+  const endpoint = `/study/due?${queryParams.toString()}`;
+  const data = await request<any>(endpoint);
+
+  const cards: Card[] = (data.cards || []).map((c: any) => ({
+    cardId: c.card_id || c.cardId,
+    noteId: c.note_id || c.noteId,
+    deckId: c.deck_id || c.deckId,
+    cardOrdinal: c.card_ordinal ?? c.cardOrdinal ?? 0,
+    state: c.state || 'NEW',
+    stability: c.stability || 0,
+    difficulty: c.difficulty || 0,
+    dueDate: c.due_date || c.dueDate,
+    scheduledDays: c.scheduled_days ?? c.scheduledDays ?? 0,
+    lastReviewDate: c.last_review_date || c.lastReviewDate,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at
+  }));
+
+  const notes: Note[] = (data.notes || []).map((n: any) => ({
+    noteId: n.note_id || n.noteId,
+    deckId: n.deck_id || n.deckId,
+    noteType: n.note_type || n.noteType || 'BASIC',
+    fields: n.fields || {},
+    tags: n.tags || [],
+    createdAt: n.created_at,
+    updatedAt: n.updated_at
+  }));
+
+  return { cards, notes };
+}
+
+export async function apiFetchAllCardsAndNotes(deckId?: string | null): Promise<{ cards: Card[]; notes: Note[] }> {
+  const queryParams = new URLSearchParams({ all: 'true' });
+  if (deckId) queryParams.set('deck_id', deckId);
 
   const endpoint = `/study/due?${queryParams.toString()}`;
   const data = await request<any>(endpoint);

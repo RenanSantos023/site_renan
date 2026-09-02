@@ -128,8 +128,10 @@ Resources:
           - DELETE
           - OPTIONS
         AllowHeaders:
+          - '*'
           - Authorization
           - Content-Type
+          - Accept
           - X-Amz-Date
           - X-Api-Key
           - X-Amz-Security-Token

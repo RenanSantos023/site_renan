@@ -131,8 +131,10 @@ Resources:
         - DELETE
         - OPTIONS
         AllowHeaders:
+        - '*'
         - Authorization
         - Content-Type
+        - Accept
         - X-Amz-Date
         - X-Api-Key
         - X-Amz-Security-Token
@@ -155,7 +157,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.create_note.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Cria notas e gera cart\xF5es derivados"
       Policies:
       - DynamoDBCrudPolicy:
@@ -175,7 +177,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.batch_create_notes.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Cria\xE7\xE3o em lote de notas e cart\xF5es (JSON, CSV, Cloze)"
       Policies:
       - DynamoDBCrudPolicy:
@@ -195,7 +197,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.ai_generate_cards.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Minera\xE7\xE3o s\xEDncrona com Amazon Bedrock (Quick Start, Texto,\
         \ Links, YouTube)"
       Policies:
@@ -232,7 +234,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.document_processor.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: Upload de documentos via S3 presigned URL e consulta de jobs
       Policies:
       - S3CrudPolicy:
@@ -262,7 +264,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.get_due_cards.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Consulta cart\xF5es vencidos com pagina\xE7\xE3o e filtro de deck"
       Policies:
       - DynamoDBReadPolicy:
@@ -282,7 +284,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.process_review.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Processa revis\xE3o com FSRS v4.5 e registra hist\xF3rico de logs"
       Policies:
       - DynamoDBCrudPolicy:
@@ -302,7 +304,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.ai_study_tutor.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Tutor IA, avalia\xE7\xE3o de resposta aberta, quiz e savepoints"
       Policies:
       - DynamoDBCrudPolicy:
@@ -362,7 +364,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.analytics_summary.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "C\xE1lculo de streak di\xE1rio, heatmap, acur\xE1cia e weak topics"
       Policies:
       - DynamoDBReadPolicy:
@@ -382,7 +384,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.manage_decks.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "CRUD completo de decks, m\xE9tricas consolidadas e compartilhamento"
       Policies:
       - DynamoDBCrudPolicy:
@@ -437,7 +439,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: handlers.user_preferences.lambda_handler
-      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/24d7d507db4c0031ca9f89390b3a49a4
+      CodeUri: s3://aws-sam-cli-managed-default-samclisourcebucket-zhddbw2olx9g/ef774ef21490d0f3dec38ed4faa50010
       Description: "Prefer\xEAncias do usu\xE1rio e par\xE2metros do algoritmo FSRS"
       Policies:
       - DynamoDBCrudPolicy:

@@ -36,14 +36,23 @@ export default function AnalyticsView({
     loadAnalytics();
   }, [cards]);
 
-  // Cálculos derivados dos dados do banco ou fallback dos cards
-  const totalCards = analytics?.summary.total_cards ?? cards.length;
-  const masteryPercent = analytics?.summary.mastery_percent ?? 0;
-  const streakDays = analytics?.gamification.streak_days ?? 0;
-  const recordStreak = analytics?.gamification.record_streak_days ?? Math.max(streakDays, 1);
-  const totalMinutes = analytics?.gamification.total_study_minutes ?? 0;
-  const accuracyRate = analytics?.gamification.accuracy_rate ?? (totalCards > 0 ? 85 : 0);
-  const weakTopics = analytics?.weak_topics ?? [];
+  // Cálculos derivados e sincronizados com os cartões e decks ativos
+  const totalCards = cards.length;
+  const activeDeckIds = new Set(cards.map(c => (c.deckId || '').toLowerCase()));
+
+  const masteredCards = cards.filter(c => (c.stability || 0) > 15 || (c.state === "REVIEW" && (c.scheduledDays || 0) > 21));
+  const masteryPercent = totalCards > 0
+    ? (analytics?.summary.mastery_percent ?? Math.min(100, Math.round((masteredCards.length / totalCards) * 100)))
+    : 0;
+  const streakDays = totalCards > 0 ? (analytics?.gamification.streak_days ?? 0) : 0;
+  const recordStreak = totalCards > 0 ? (analytics?.gamification.record_streak_days ?? Math.max(streakDays, 1)) : 0;
+  const totalMinutes = totalCards > 0 ? (analytics?.gamification.total_study_minutes ?? 0) : 0;
+  const accuracyRate = totalCards > 0 ? (analytics?.gamification.accuracy_rate ?? 0) : 0;
+
+  // Filtrar tópicos fracos para considerar apenas baralhos que ainda existem
+  const weakTopics = totalCards > 0
+    ? (analytics?.weak_topics || []).filter(wt => activeDeckIds.has((wt.deck || wt.topic || '').toLowerCase()))
+    : [];
 
   // Formatação de tempo de estudo em horas/minutos reais
   const hours = Math.floor(totalMinutes / 60);

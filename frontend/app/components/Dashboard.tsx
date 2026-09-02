@@ -17,6 +17,7 @@ import { getCurrentAuthenticatedUser, signOutUser, configureAmplifyAuth } from "
 import { 
   apiFetchDecks, 
   apiFetchDueCards, 
+  apiFetchAllCardsAndNotes,
   apiFetchAnalyticsSummary, 
   apiCreateBatchNotes 
 } from "../../utils/api";
@@ -50,9 +51,9 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
   const refreshAllData = useCallback(async () => {
     try {
       setLoadingData(true);
-      const [decksRes, dueCardsRes, analyticsRes] = await Promise.allSettled([
+      const [decksRes, allCardsRes, analyticsRes] = await Promise.allSettled([
         apiFetchDecks(),
-        apiFetchDueCards(),
+        apiFetchAllCardsAndNotes(),
         apiFetchAnalyticsSummary()
       ]);
 
@@ -60,9 +61,9 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
         setDecks(decksRes.value);
       }
 
-      if (dueCardsRes.status === "fulfilled") {
-        setCards(dueCardsRes.value.cards);
-        setNotes(dueCardsRes.value.notes);
+      if (allCardsRes.status === "fulfilled") {
+        setCards(allCardsRes.value.cards);
+        setNotes(allCardsRes.value.notes);
       }
 
       if (analyticsRes.status === "fulfilled") {
@@ -160,9 +161,56 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
   };
 
   const handleDeleteNote = async (noteId: string) => {
+    const cardsToRemove = cards.filter(c => c.noteId === noteId);
+    const count = cardsToRemove.length || 1;
+
     setNotes(prev => prev.filter(n => n.noteId !== noteId));
     setCards(prev => prev.filter(c => c.noteId !== noteId));
+
+    setAnalytics(prev => {
+      if (!prev) return null;
+      const newTotal = Math.max(0, prev.summary.total_cards - count);
+      return {
+        ...prev,
+        summary: {
+          ...prev.summary,
+          total_cards: newTotal,
+          mastery_percent: newTotal > 0 ? prev.summary.mastery_percent : 0
+        }
+      };
+    });
+
     showToast("Nota excluída no acervo.", "info");
+  };
+
+  const handleDeleteDeck = (deckId: string) => {
+    const dLower = deckId.toLowerCase();
+    const cardsToRemove = cards.filter(c => (c.deckId || '').toLowerCase() === dLower);
+    const count = cardsToRemove.length;
+
+    setDecks(prev => prev.filter(d => (d.deckId || '').toLowerCase() !== dLower));
+    setNotes(prev => prev.filter(n => (n.deckId || '').toLowerCase() !== dLower));
+    setCards(prev => prev.filter(c => (c.deckId || '').toLowerCase() !== dLower));
+
+    if (selectedDeckForStudy && selectedDeckForStudy.toLowerCase() === dLower) {
+      setSelectedDeckForStudy(null);
+    }
+    if (selectedFolder && selectedFolder.toLowerCase() === dLower) {
+      setSelectedFolder(null);
+    }
+
+    setAnalytics(prev => {
+      if (!prev) return null;
+      const newTotal = Math.max(0, prev.summary.total_cards - count);
+      return {
+        ...prev,
+        summary: {
+          ...prev.summary,
+          total_cards: newTotal,
+          mastery_percent: newTotal > 0 ? prev.summary.mastery_percent : 0
+        }
+      };
+    });
   };
 
   if (authChecking) {
@@ -257,6 +305,7 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
             <DecksView 
               notes={notes} 
               cards={cards} 
+              decks={decks}
               onStudyDeck={(deckId) => {
                 setSelectedDeckForStudy(deckId);
                 setActiveTab("study");
@@ -267,7 +316,9 @@ export default function Dashboard({ initialNotes, initialCards }: DashboardProps
                 setActiveTab("create");
               }}
               onDeleteNote={handleDeleteNote}
+              onDeleteDeck={handleDeleteDeck}
               showToast={showToast}
+              onRefresh={refreshAllData}
             />
           )}
 

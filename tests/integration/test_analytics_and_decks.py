@@ -125,6 +125,27 @@ def test_decks_crud_and_share(setup_dynamo, monkeypatch):
     assert "share_code" in body_share
     assert body_share["deck_id"] == "aws-cloud"
 
+    # 4. Insert note and card for aws-cloud deck
+    repo = DynamoRepository(table_name=TABLE_NAME, dynamodb_resource=setup_dynamo)
+    note = Note(user_id=user_id, note_id="not_aws_1", deck_id="aws-cloud", fields={"Front": "Q", "Back": "A"})
+    card = Card(user_id=user_id, card_id="crd_aws_1", note_id="not_aws_1", deck_id="aws-cloud")
+    repo.save_note_with_cards(note, [card])
+    assert repo.get_note(user_id, "not_aws_1") is not None
+    assert repo.get_card(user_id, "crd_aws_1") is not None
+
+    # 5. Delete deck (cascading)
+    del_evt = {
+        "headers": {"X-User-Id": user_id},
+        "path": "/decks/aws-cloud",
+        "httpMethod": "DELETE",
+    }
+    res_del = decks_handler(del_evt, None)
+    assert res_del["statusCode"] == 200
+
+    # 6. Verify cascading deletion in DynamoDB
+    assert repo.get_note(user_id, "not_aws_1") is None
+    assert repo.get_card(user_id, "crd_aws_1") is None
+
 
 def test_user_preferences_crud(setup_dynamo, monkeypatch):
     monkeypatch.setenv("TABLE_NAME", TABLE_NAME)

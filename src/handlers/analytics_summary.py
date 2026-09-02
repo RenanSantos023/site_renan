@@ -83,7 +83,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
                 deck_stats[deck]["correct"] += 1
 
         # Calculate Streak
-        streak_days = calculate_streak(review_datetimes, now)
+        streak_days = calculate_streak(review_datetimes, now) if total_cards > 0 else 0
 
         # Calculate Heatmap (last 365 days aggregated by YYYY-MM-DD)
         heatmap: Dict[str, int] = {}
@@ -91,40 +91,43 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
             key = dt.strftime("%Y-%m-%d")
             heatmap[key] = heatmap.get(key, 0) + 1
 
-        accuracy_rate = round((correct_count / max(1, len(logs))) * 100) if logs else 85
-        total_study_minutes = round(total_time_ms / 60000)
+        accuracy_rate = round((correct_count / max(1, len(logs))) * 100) if (logs and total_cards > 0) else 0
+        total_study_minutes = round(total_time_ms / 60000) if total_cards > 0 else 0
 
-        # Identify Weak Topics
+        # Identify Weak Topics only for existing active decks
+        active_decks = { (c.deck_id or "").lower() for c in cards }
         weak_topics = []
-        for deck, stats in deck_stats.items():
-            acc = round((stats["correct"] / max(1, stats["total"])) * 100)
-            if acc < 75 or len(weak_topics) < 3:
+        if total_cards > 0:
+            for deck, stats in deck_stats.items():
+                if deck.lower() not in active_decks:
+                    continue
+                acc = round((stats["correct"] / max(1, stats["total"])) * 100)
                 weak_topics.append({
                     "topic": deck.capitalize(),
                     "deck": deck,
                     "accuracy": acc,
                     "total_reviews": stats["total"]
                 })
-        weak_topics.sort(key=lambda x: x["accuracy"])
+            weak_topics.sort(key=lambda x: x["accuracy"])
 
         response_data = {
             "summary": {
                 "total_cards": total_cards,
-                "mastered_cards": mastered_count,
-                "learning_cards": learning_count,
-                "difficult_cards": difficult_count,
-                "new_cards": new_count,
-                "review_cards": review_count,
-                "mastery_percent": mastery_percent,
+                "mastered_cards": mastered_count if total_cards > 0 else 0,
+                "learning_cards": learning_count if total_cards > 0 else 0,
+                "difficult_cards": difficult_count if total_cards > 0 else 0,
+                "new_cards": new_count if total_cards > 0 else 0,
+                "review_cards": review_count if total_cards > 0 else 0,
+                "mastery_percent": mastery_percent if total_cards > 0 else 0,
             },
             "gamification": {
                 "streak_days": streak_days,
-                "record_streak_days": max(streak_days, 19),
-                "total_reviews": len(logs),
-                "total_study_minutes": max(total_study_minutes, 18),
+                "record_streak_days": streak_days if total_cards > 0 else 0,
+                "total_reviews": len(logs) if total_cards > 0 else 0,
+                "total_study_minutes": total_study_minutes,
                 "accuracy_rate": accuracy_rate,
             },
-            "heatmap": heatmap,
+            "heatmap": heatmap if total_cards > 0 else {},
             "weak_topics": weak_topics[:5],
             "timestamp": now.isoformat(),
         }

@@ -138,6 +138,17 @@ class ReviewResponse(BaseModel):
 # Decks Models
 # -----------------------------------------------------------------------------
 
+class DeckCreateRequest(BaseModel):
+    name: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = ""
+    deck_id: Optional[str] = None
+    icon: Optional[str] = "BookOpen"
+    color: Optional[str] = "#8b5cf6"
+    category: Optional[str] = "Geral"
+    tags: List[str] = Field(default_factory=list)
+
+
 class DeckMetadata(BaseModel):
     user_id: str
     deck_id: str

@@ -33,9 +33,12 @@ export default function HomeView({
   const reviewCards = cards.filter(c => c.state === "REVIEW");
   const masteredCards = cards.filter(c => (c.stability || 0) > 15 || (c.state === "REVIEW" && (c.scheduledDays || 0) > 21));
 
-  const totalCards = analytics?.summary.total_cards ?? (cards.length || 1);
-  const masteryPercent = analytics?.summary.mastery_percent ?? Math.min(100, Math.round((masteredCards.length / Math.max(1, totalCards)) * 100));
-  const estimatedTimeMin = Math.max(2, Math.round(dueCards.length * 0.45));
+  // Contagem dinâmica real e consistente com o estado dos cartões
+  const totalCards = cards.length;
+  const masteryPercent = totalCards > 0
+    ? Math.min(100, Math.round((masteredCards.length / totalCards) * 100))
+    : 0;
+  const estimatedTimeMin = totalCards > 0 ? Math.max(2, Math.round(dueCards.length * 0.45)) : 0;
   const streakDays = analytics?.gamification.streak_days ?? 0;
 
   // Agrupamento por Deck para "Continue Learning"

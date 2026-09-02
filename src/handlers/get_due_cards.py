@@ -65,17 +65,24 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
         now_iso = datetime.now(timezone.utc).isoformat()
         repo = get_repository()
-        cards, last_evaluated_key = repo.get_due_cards(
-            user_id=user_id,
-            current_time_iso=now_iso,
-            deck_id=deck_id,
-            limit=limit,
-            exclusive_start_key=exclusive_start_key,
-        )
 
-        # Buscar notas físicas associadas aos cartões para renderização completa no frontend
-        note_ids = list({c.note_id for c in cards if c.note_id})
-        notes = repo.get_notes_by_ids(user_id=user_id, note_ids=note_ids)
+        include_all = query_params.get("all", "false").lower() in ("true", "1") or query_params.get("include_all", "false").lower() in ("true", "1")
+
+        if include_all:
+            cards = repo.get_all_cards(user_id=user_id, deck_id=deck_id)
+            notes = repo.get_all_notes(user_id=user_id, deck_id=deck_id)
+            last_evaluated_key = None
+        else:
+            cards, last_evaluated_key = repo.get_due_cards(
+                user_id=user_id,
+                current_time_iso=now_iso,
+                deck_id=deck_id,
+                limit=limit,
+                exclusive_start_key=exclusive_start_key,
+            )
+            # Buscar notas físicas associadas aos cartões devidos
+            note_ids = list({c.note_id for c in cards if c.note_id})
+            notes = repo.get_notes_by_ids(user_id=user_id, note_ids=note_ids)
 
         response_data = {
             "cards": [card.model_dump() for card in cards],

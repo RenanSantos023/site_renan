@@ -1,16 +1,22 @@
 'use client';
 
 import React, { useState } from "react";
-import type { Note, Card } from "../../amplify/data/resource";
+import type { Note, Card, Deck } from "../../amplify/data/resource";
+import { CreateDeckModal } from "./CreateDeckModal";
+import { DeleteDeckModal } from "./DeleteDeckModal";
+import { apiDeleteDeck } from "../../utils/api";
 
 interface DecksViewProps {
   notes: Note[];
   cards: Card[];
+  decks?: Deck[];
   onStudyDeck: (deckId: string) => void;
-  onCreateDeck: () => void;
+  onCreateDeck?: () => void;
   onAddCardsToDeck: (deckId: string) => void;
   onDeleteNote: (noteId: string) => void;
+  onDeleteDeck?: (deckId: string) => void;
   showToast: (msg: string, type: "success" | "error" | "info") => void;
+  onRefresh?: () => void;
 }
 
 type FilterType = "all" | "in_progress" | "completed" | "favorites";
@@ -19,12 +25,18 @@ type SortType = "recent" | "mastery" | "title" | "cards";
 export default function DecksView({
   notes,
   cards,
+  decks = [],
   onStudyDeck,
   onCreateDeck,
   onAddCardsToDeck,
   onDeleteNote,
-  showToast
+  onDeleteDeck,
+  showToast,
+  onRefresh
 }: DecksViewProps) {
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+  const [deckToDelete, setDeckToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deletedDeckIds, setDeletedDeckIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [sortBy, setSortBy] = useState<SortType>("recent");
@@ -53,6 +65,8 @@ export default function DecksView({
   const now = new Date();
   const decksMap = new Map<string, {
     deckId: string;
+    title: string;
+    description: string;
     notes: Note[];
     cards: Card[];
     dueCount: number;
@@ -62,10 +76,31 @@ export default function DecksView({
     latestUpdate: string;
   }>();
 
+  // 1. Inicializar com decks explicitamente criados
+  decks.forEach(d => {
+    const dId = (d.deckId || '').trim().toLowerCase();
+    if (!dId) return;
+    decksMap.set(dId, {
+      deckId: dId,
+      title: d.title || dId,
+      description: d.description || '',
+      notes: [],
+      cards: [],
+      dueCount: 0,
+      newCount: 0,
+      learningCount: 0,
+      masteredCount: 0,
+      latestUpdate: d.updatedAt || d.createdAt || new Date().toISOString()
+    });
+  });
+
+  // 2. Mapear notas existentes
   notes.forEach(note => {
-    const d = note.deckId || "geral";
+    const d = (note.deckId || "geral").toLowerCase();
     const item = decksMap.get(d) || {
       deckId: d,
+      title: d,
+      description: '',
       notes: [],
       cards: [],
       dueCount: 0,
@@ -78,8 +113,9 @@ export default function DecksView({
     decksMap.set(d, item);
   });
 
+  // 3. Mapear cards existentes
   cards.forEach(card => {
-    const d = card.deckId || "geral";
+    const d = (card.deckId || "geral").toLowerCase();
     const item = decksMap.get(d);
     if (item) {
       item.cards.push(card);
@@ -104,7 +140,9 @@ export default function DecksView({
 
   // Filtragem
   const filteredDecks = deckList.filter(deck => {
-    const matchesSearch = deck.deckId.toLowerCase().includes(searchQuery.toLowerCase());
+    if (deletedDeckIds.includes(deck.deckId.toLowerCase())) return false;
+    const matchesSearch = deck.deckId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (deck.title && deck.title.toLowerCase().includes(searchQuery.toLowerCase()));
     if (!matchesSearch) return false;
 
     if (filter === "favorites") return deck.isFavorite;
@@ -117,7 +155,7 @@ export default function DecksView({
   filteredDecks.sort((a, b) => {
     if (sortBy === "mastery") return b.masteryPercent - a.masteryPercent;
     if (sortBy === "cards") return b.cards.length - a.cards.length;
-    if (sortBy === "title") return a.deckId.localeCompare(b.deckId);
+    if (sortBy === "title") return (a.title || a.deckId).localeCompare(b.title || b.deckId);
     return new Date(b.latestUpdate).getTime() - new Date(a.latestUpdate).getTime();
   });
 
@@ -139,12 +177,44 @@ export default function DecksView({
     return deckIcons.default;
   };
 
+  const handleOpenCreateModal = () => {
+    setIsCreateModalOpen(true);
+  };
+
+  const handleDeckCreated = (newDeck: Deck) => {
+    if (onRefresh) {
+      onRefresh();
+    }
+    setSelectedDeckDetail(newDeck.deckId);
+  };
+
+  const handleConfirmDeleteDeck = async (deckId: string) => {
+    try {
+      const dLower = deckId.toLowerCase();
+      setDeletedDeckIds(prev => [...prev, dLower]);
+      await apiDeleteDeck(deckId);
+      if (onDeleteDeck) {
+        onDeleteDeck(deckId);
+      }
+      if (selectedDeckDetail && selectedDeckDetail.toLowerCase() === dLower) {
+        setSelectedDeckDetail(null);
+      }
+      showToast("Baralho excluído com sucesso!", "success");
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (err: any) {
+      setDeletedDeckIds(prev => prev.filter(id => id !== deckId.toLowerCase()));
+      showToast(`Erro ao excluir baralho: ${err.message}`, "error");
+      throw err;
+    }
+  };
+
   const selectedDeck = deckList.find(d => d.deckId === selectedDeckDetail);
 
   return (
     <div className="flex flex-col gap-8 max-w-6xl mx-auto pb-12 animate-fade-in">
       
-      {/* HEADER & CREATE BUTTON */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-text-primary tracking-tight">
@@ -156,7 +226,7 @@ export default function DecksView({
         </div>
 
         <button
-          onClick={onCreateDeck}
+          onClick={handleOpenCreateModal}
           className="bg-gradient-to-r from-accent-blue to-accent-purple hover:opacity-95 text-white font-bold px-6 py-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-accent-purple/20 cursor-pointer self-start md:self-auto transition-all duration-300"
         >
           <span className="material-symbols-outlined text-xl">add_circle</span>
@@ -164,10 +234,8 @@ export default function DecksView({
         </button>
       </div>
 
-      {/* CONTROLS: SEARCH, FILTERS & SORT */}
       <div className="flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
         
-        {/* Search */}
         <div className="relative flex-1 max-w-md">
           <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary text-lg">
             search
@@ -181,7 +249,6 @@ export default function DecksView({
           />
         </div>
 
-        {/* Filters & Sort */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="bg-bg-card border border-border-color p-1 rounded-2xl flex items-center">
             <button
@@ -210,33 +277,41 @@ export default function DecksView({
             </button>
           </div>
 
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortType)}
-            className="bg-bg-card border border-border-color text-text-primary text-xs font-bold px-3 py-2.5 rounded-2xl outline-none focus:border-accent-purple cursor-pointer"
-          >
-            <option value="recent">Mais Recentes</option>
-            <option value="mastery">Maior Domínio</option>
-            <option value="cards">Mais Cartões</option>
-            <option value="title">Ordem Alfabética</option>
-          </select>
+          <div className="bg-bg-card border border-border-color p-1 rounded-2xl flex items-center gap-1">
+            <span className="material-symbols-outlined text-text-secondary text-sm pl-2">sort</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortType)}
+              className="bg-transparent text-text-secondary text-xs font-semibold px-2 py-1.5 rounded-xl outline-none cursor-pointer"
+            >
+              <option value="recent" className="bg-bg-card text-text-primary">Mais Recentes</option>
+              <option value="mastery" className="bg-bg-card text-text-primary">Maior Domínio</option>
+              <option value="cards" className="bg-bg-card text-text-primary">Mais Cartões</option>
+              <option value="title" className="bg-bg-card text-text-primary">Nome A-Z</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* GRID DE DECKS */}
       {filteredDecks.length === 0 ? (
-        <div className="bg-bg-card border border-border-color rounded-3xl p-12 text-center flex flex-col items-center gap-4">
-          <span className="material-symbols-outlined text-5xl text-text-disabled">folder_off</span>
-          <h3 className="text-lg font-bold text-text-primary">Nenhum baralho encontrado</h3>
-          <p className="text-xs text-text-secondary max-w-sm">
-            Tente mudar o filtro de busca ou crie um novo baralho com Inteligência Artificial.
-          </p>
-          <button
-            onClick={onCreateDeck}
-            className="mt-2 bg-accent-purple text-white text-xs font-bold px-5 py-2.5 rounded-xl cursor-pointer"
-          >
-            Criar Primeiro Baralho
-          </button>
+        <div className="bg-bg-card border border-border-color rounded-3xl p-12 text-center flex flex-col items-center justify-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-text-secondary">
+            <span className="material-symbols-outlined text-4xl">folder_off</span>
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-text-primary">Nenhum baralho encontrado</h3>
+            <p className="text-xs text-text-secondary mt-1">
+              {searchQuery ? "Tente outro termo na busca ou limpe o filtro." : "Crie o seu primeiro baralho para começar a estudar com FSRS."}
+            </p>
+          </div>
+          {!searchQuery && (
+            <button
+              onClick={handleOpenCreateModal}
+              className="bg-accent-purple text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md cursor-pointer hover:opacity-90 transition-all mt-2"
+            >
+              Criar Primeiro Baralho
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -251,23 +326,41 @@ export default function DecksView({
                   <div className="w-12 h-12 rounded-2xl bg-accent-purple/15 text-accent-purple flex items-center justify-center font-bold">
                     <span className="material-symbols-outlined text-2xl">{getDeckIcon(deck.deckId)}</span>
                   </div>
-                  <button
-                    onClick={(e) => toggleFavorite(deck.deckId, e)}
-                    className={`p-2 rounded-xl border border-transparent hover:border-border-color transition-colors cursor-pointer ${deck.isFavorite ? "text-accent-yellow" : "text-text-disabled hover:text-text-primary"}`}
-                    title={deck.isFavorite ? "Favorito" : "Marcar favorito"}
-                  >
-                    <span className="material-symbols-outlined text-xl">
-                      {deck.isFavorite ? "star" : "star_border"}
-                    </span>
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => toggleFavorite(deck.deckId, e)}
+                      className={`p-2 rounded-xl border border-transparent hover:border-border-color transition-colors cursor-pointer ${deck.isFavorite ? "text-accent-yellow" : "text-text-disabled hover:text-text-primary"}`}
+                      title={deck.isFavorite ? "Favorito" : "Marcar favorito"}
+                    >
+                      <span className="material-symbols-outlined text-xl">
+                        {deck.isFavorite ? "star" : "star_border"}
+                      </span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeckToDelete({ id: deck.deckId, title: deck.title || deck.deckId });
+                      }}
+                      className="p-2 rounded-xl border border-transparent hover:border-red-500/30 text-text-disabled hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      title="Excluir baralho"
+                    >
+                      <span className="material-symbols-outlined text-xl">delete</span>
+                    </button>
+                  </div>
                 </div>
 
-                <h3 className="text-lg font-bold text-text-primary capitalize mt-4 truncate">
-                  {deck.deckId}
+                <h3 className="text-lg font-bold text-text-primary mt-4 truncate">
+                  {deck.title || deck.deckId}
                 </h3>
-                <p className="text-xs text-text-secondary mt-1">
-                  {deck.notes.length} notas • {deck.cards.length} flashcards
-                </p>
+                {deck.description ? (
+                  <p className="text-xs text-text-secondary mt-1 line-clamp-2">
+                    {deck.description}
+                  </p>
+                ) : (
+                  <p className="text-xs text-text-secondary mt-1">
+                    {deck.notes.length} notas • {deck.cards.length} flashcards
+                  </p>
+                )}
               </div>
 
               <div>
@@ -330,19 +423,34 @@ export default function DecksView({
                   <span className="material-symbols-outlined text-3xl">{getDeckIcon(selectedDeck.deckId)}</span>
                 </div>
                 <div>
-                  <h2 className="text-xl font-black text-text-primary capitalize">{selectedDeck.deckId}</h2>
-                  <p className="text-xs text-text-secondary">
+                  <h2 className="text-xl font-black text-text-primary">{selectedDeck.title || selectedDeck.deckId}</h2>
+                  {selectedDeck.description && (
+                    <p className="text-xs text-text-secondary mt-0.5 max-w-xl">
+                      {selectedDeck.description}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-text-secondary/80 mt-1">
                     {selectedDeck.cards.length} Flashcards • {selectedDeck.masteryPercent}% Domínio Geral
                   </p>
                 </div>
               </div>
 
-              <button
-                onClick={() => setSelectedDeckDetail(null)}
-                className="p-2 rounded-xl text-text-secondary hover:text-text-primary hover:bg-white/5 cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-2xl">close</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setDeckToDelete({ id: selectedDeck.deckId, title: selectedDeck.title || selectedDeck.deckId })}
+                  className="p-2 rounded-xl text-text-disabled hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+                  title="Excluir este baralho"
+                >
+                  <span className="material-symbols-outlined text-xl">delete</span>
+                  <span className="hidden sm:inline">Excluir</span>
+                </button>
+                <button
+                  onClick={() => setSelectedDeckDetail(null)}
+                  className="p-2 rounded-xl text-text-secondary hover:text-text-primary hover:bg-white/5 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-2xl">close</span>
+                </button>
+              </div>
             </div>
 
             {/* Quick Actions */}
@@ -417,28 +525,48 @@ export default function DecksView({
             {/* Tab: Cards */}
             {detailTab === "cards" && (
               <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-2">
-                {selectedDeck.notes.map(note => (
-                  <div
-                    key={note.noteId}
-                    className="bg-bg-input/60 border border-border-color p-4 rounded-xl flex items-center justify-between gap-4"
-                  >
-                    <div className="flex flex-col gap-1 min-w-0">
-                      <span className="text-xs font-bold text-text-primary truncate">
-                        {note.fields?.Front || "Sem pergunta"}
-                      </span>
-                      <span className="text-xs text-text-secondary truncate">
-                        {note.fields?.Back || "Sem resposta"}
-                      </span>
+                {selectedDeck.notes.length === 0 ? (
+                  <div className="bg-bg-input/30 border border-dashed border-border-color rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3">
+                    <span className="material-symbols-outlined text-3xl text-text-disabled">style</span>
+                    <div>
+                      <p className="text-xs font-bold text-text-primary">Nenhum card neste baralho ainda.</p>
+                      <p className="text-[11px] text-text-secondary mt-0.5">Comece adicionando novos flashcards manualmente ou gerando com IA.</p>
                     </div>
                     <button
-                      onClick={() => onDeleteNote(note.noteId)}
-                      className="p-2 text-text-disabled hover:text-red-400 rounded-lg hover:bg-white/5 cursor-pointer shrink-0"
-                      title="Excluir nota"
+                      onClick={() => {
+                        setSelectedDeckDetail(null);
+                        onAddCardsToDeck(selectedDeck.deckId);
+                      }}
+                      className="bg-accent-purple text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-all mt-1"
                     >
-                      <span className="material-symbols-outlined text-lg">delete</span>
+                      <span className="material-symbols-outlined text-sm">add_card</span>
+                      <span>+ Criar Primeiro Card</span>
                     </button>
                   </div>
-                ))}
+                ) : (
+                  selectedDeck.notes.map(note => (
+                    <div
+                      key={note.noteId}
+                      className="bg-bg-input/60 border border-border-color p-4 rounded-xl flex items-center justify-between gap-4"
+                    >
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <span className="text-xs font-bold text-text-primary truncate">
+                          {note.fields?.Front || "Sem pergunta"}
+                        </span>
+                        <span className="text-xs text-text-secondary truncate">
+                          {note.fields?.Back || "Sem resposta"}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => onDeleteNote(note.noteId)}
+                        className="p-2 text-text-disabled hover:text-red-400 rounded-lg hover:bg-white/5 cursor-pointer shrink-0"
+                        title="Excluir nota"
+                      >
+                        <span className="material-symbols-outlined text-lg">delete</span>
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             )}
 
@@ -481,6 +609,25 @@ export default function DecksView({
 
           </div>
         </div>
+      )}
+
+      {/* CREATE DECK MODAL */}
+      <CreateDeckModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onDeckCreated={handleDeckCreated}
+        showToast={(type, title, msg) => showToast(`${title} - ${msg}`, type)}
+      />
+
+      {/* DELETE DECK CONFIRMATION MODAL */}
+      {deckToDelete && (
+        <DeleteDeckModal
+          isOpen={Boolean(deckToDelete)}
+          deckId={deckToDelete.id}
+          deckTitle={deckToDelete.title}
+          onClose={() => setDeckToDelete(null)}
+          onConfirmDelete={handleConfirmDeleteDeck}
+        />
       )}
 
     </div>

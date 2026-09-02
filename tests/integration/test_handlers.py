@@ -156,6 +156,18 @@ def test_get_due_cards_handler_and_pagination(mock_dynamodb):
     body2 = json.loads(res_page2["body"])
     assert body2["count"] == 1
 
+    # Query with all=true (returns all 3 cards)
+    get_event_all = {
+        "requestContext": {"authorizer": {"jwt": {"claims": {"sub": user_id}}}},
+        "queryStringParameters": {"all": "true"}
+    }
+    res_all = get_due_cards.lambda_handler(get_event_all)
+    assert res_all["statusCode"] == 200
+    body_all = json.loads(res_all["body"])
+    assert body_all["count"] == 3
+    assert len(body_all["cards"]) == 3
+    assert len(body_all["notes"]) == 3
+
 
 def test_process_review_again_vs_easy_comparison(mock_dynamodb):
     user_id = "usr_comparison_tester"

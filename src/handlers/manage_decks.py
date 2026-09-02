@@ -17,7 +17,30 @@ import uuid
 from domain.models import DeckMetadata, Note, Card, NoteType, CardState
 from repositories.dynamo_repository import DynamoRepository
 from shared.auth import extract_user_id
-from shared.responses import success_response, bad_request_response, error_response
+from shared.responses import success_response, bad_request_response, error_response, build_response
+
+
+def extract_deck_id(event: Dict[str, Any], path: str, body: Dict[str, Any] = None) -> str:
+    path_params = event.get("pathParameters") or {}
+    deck_id = path_params.get("deckId") or path_params.get("deck_id") or ""
+    if deck_id:
+        return deck_id.strip().lower()
+
+    if body and body.get("deck_id"):
+        return str(body.get("deck_id")).strip().lower()
+
+    segments = [s for s in path.strip("/").split("/") if s]
+    if "decks" in segments:
+        idx = segments.index("decks")
+        if idx + 1 < len(segments):
+            next_seg = segments[idx + 1]
+            if next_seg not in ("share", "import-shared"):
+                return next_seg.strip().lower()
+
+    if segments and segments[-1] not in ("decks", "share", "import-shared", "dev", "prod", "staging"):
+        return segments[-1].strip().lower()
+
+    return ""
 
 
 def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
@@ -71,8 +94,7 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
         # 2. POST /decks/{deckId}/share
         if "/share" in path and http_method == "POST":
-            path_parts = path.strip("/").split("/")
-            deck_id = path_parts[1] if len(path_parts) > 2 else body.get("deck_id", "")
+            deck_id = extract_deck_id(event, path, body)
             if not deck_id:
                 return bad_request_response("Deck ID is required for sharing.")
 
@@ -174,27 +196,84 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
         # 4. POST /decks (Create Deck)
         if http_method == "POST":
-            deck_id = body.get("deck_id", "").strip().lower()
-            if not deck_id:
-                return bad_request_response("deck_id is required.")
+            raw_name = body.get("name") if "name" in body else (body.get("title") if "title" in body else body.get("deck_id", ""))
+            if not isinstance(raw_name, str):
+                return build_response(400, {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Informe um nome para o baralho."
+                    }
+                })
+
+            name = raw_name.strip()
+            if not name:
+                return build_response(400, {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Informe um nome para o baralho."
+                    }
+                })
+
+            if len(name) > 100:
+                return build_response(400, {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "O nome deve ter no máximo 100 caracteres."
+                    }
+                })
+
+            raw_desc = body.get("description", "")
+            if not isinstance(raw_desc, str):
+                raw_desc = str(raw_desc or "")
+            description = raw_desc.strip()
+            if len(description) > 500:
+                return build_response(400, {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "A descrição deve ter no máximo 500 caracteres."
+                    }
+                })
+
+            provided_deck_id = body.get("deck_id", "").strip().lower()
+            deck_id = provided_deck_id if provided_deck_id else f"deck_{uuid.uuid4().hex[:12]}"
+
             deck_meta = DeckMetadata(
                 user_id=user_id,
                 deck_id=deck_id,
-                title=body.get("title", deck_id.capitalize()),
-                description=body.get("description", ""),
+                title=name,
+                description=description,
+                icon=body.get("icon", "BookOpen"),
+                color=body.get("color", "#8b5cf6"),
+                category=body.get("category", "Geral"),
                 is_favorite=body.get("is_favorite", False),
                 tags=body.get("tags", [deck_id]),
             )
             repo.save_deck_metadata(deck_meta)
-            return success_response(deck_meta.model_dump(), status_code=201)
+
+            response_data = {
+                "id": deck_id,
+                "deck_id": deck_id,
+                "name": name,
+                "title": name,
+                "description": description,
+                "createdAt": deck_meta.created_at,
+                "updatedAt": deck_meta.updated_at,
+                "created_at": deck_meta.created_at,
+                "updated_at": deck_meta.updated_at,
+                "is_favorite": deck_meta.is_favorite,
+                "tags": deck_meta.tags,
+                "icon": deck_meta.icon,
+                "color": deck_meta.color,
+                "category": deck_meta.category,
+            }
+            return success_response(response_data, status_code=201)
 
         # 5. PUT /decks/{deckId}
         if http_method == "PUT":
-            path_parts = path.strip("/").split("/")
-            deck_id = path_parts[1] if len(path_parts) > 1 else body.get("deck_id", "")
+            deck_id = extract_deck_id(event, path, body)
             deck_meta = DeckMetadata(
                 user_id=user_id,
-                deck_id=deck_id.lower(),
+                deck_id=deck_id,
                 title=body.get("title"),
                 description=body.get("description"),
                 is_favorite=body.get("is_favorite", False),
@@ -206,12 +285,11 @@ def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]
 
         # 6. DELETE /decks/{deckId}
         if http_method == "DELETE":
-            path_parts = path.strip("/").split("/")
-            deck_id = path_parts[1] if len(path_parts) > 1 else ""
+            deck_id = extract_deck_id(event, path, body)
             if not deck_id:
                 return bad_request_response("deck_id is required for deletion.")
             repo.delete_deck(user_id=user_id, deck_id=deck_id)
-            return success_response({"message": f"Deck '{deck_id}' metadata removed successfully."})
+            return success_response({"message": f"Deck '{deck_id}' and all associated cards removed successfully."})
 
         return bad_request_response("Unsupported deck action or method.")
 

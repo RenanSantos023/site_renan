@@ -503,9 +503,33 @@ class DynamoRepository(BaseRepository):
         ]
 
     def delete_deck(self, user_id: str, deck_id: str) -> None:
+        """Deletes a deck and cascades deletion to all notes, cards, and review logs associated with it in DynamoDB."""
         pk = self._user_pk(user_id)
         sk = self._deck_sk(deck_id)
-        self.table.delete_item(Key={"PK": pk, "SK": sk})
+        d_lower = deck_id.strip().lower()
+
+        # 1. Buscar notas pertencentes ao baralho
+        notes_to_delete = self.get_all_notes(user_id=user_id, deck_id=deck_id)
+        # 2. Buscar cards pertencentes ao baralho
+        cards_to_delete = self.get_all_cards(user_id=user_id, deck_id=deck_id)
+        # 3. Buscar logs de revisão pertencentes ao baralho
+        all_logs = self.get_review_logs(user_id=user_id)
+        logs_to_delete = [l for l in all_logs if (l.get("deck_id") or "").lower() == d_lower]
+
+        with self.table.batch_writer() as batch:
+            # Deletar item do deck
+            batch.delete_item(Key={"PK": pk, "SK": sk})
+            # Deletar notas associadas
+            for n in notes_to_delete:
+                batch.delete_item(Key={"PK": pk, "SK": self._note_sk(n.note_id)})
+            # Deletar cartões associados
+            for c in cards_to_delete:
+                batch.delete_item(Key={"PK": pk, "SK": self._card_sk(c.card_id)})
+            # Deletar logs de revisão associados
+            for l in logs_to_delete:
+                log_sk = l.get("SK")
+                if log_sk:
+                    batch.delete_item(Key={"PK": pk, "SK": log_sk})
 
     def save_user_preferences(self, prefs: UserPreferences) -> None:
         pk = self._user_pk(prefs.user_id)
