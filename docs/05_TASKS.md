@@ -273,11 +273,14 @@ Esta fase entrega a experiência de acompanhamento de desempenho, retenção a l
 ### 3.2. Gestão Completa de Decks e Compartilhamento
 - **Lambda `ManageDecksFunction` (`GET /decks`, `POST /decks`, `PUT /decks/{deckId}`, `DELETE /decks/{deckId}`)**
   - [x] **B3.2.1. Listagem Consolidada de Decks:** Agregação de estatísticas por baralho (total, devidos hoje, aprendidos, % de domínio, data da última revisão).
-  - [x] **B3.2.2. CRUD e Favoritos:** Criar, editar metadados, favoritar (`is_favorite`) e excluir baralhos com suporte a deleção em lote dos cartões associados.
-  - [x] **B3.2.3. Compartilhamento Multi-Tenant (`POST /decks/{deckId}/share` e `POST /decks/import-shared`):** Exportação/importação de baralhos entre diferentes usuários com código de compartilhamento único.
+  - [x] **B3.2.2. Criação de Baralhos no Frontend (`CreateDeckModal.tsx`):** Modal acessível com validação de nome (1–100 chars), descrição (até 500 chars), focus trap e prevenção de double submit.
+  - [x] **B3.2.3. Exclusão Segura com Confirmação Textual (`DeleteDeckModal.tsx`):** Modal exigindo digitação da palavra `"excluir"` antes de confirmar a exclusão.
+  - [x] **B3.2.4. Exclusão em Cascata no DynamoDB:** Remoção atômica em lote do deck (`DECK#...`), notas (`NOTE#...`), flashcards (`CARD#...`) e logs de revisão (`REV#...`).
+  - [x] **B3.2.5. Suporte a Acervo Completo (`GET /study/due?all=true`):** Permite listar todos os cartões do acervo mesmo após terem sido estudados e reagendados pelo FSRS.
+  - [x] **B3.2.6. Compartilhamento Multi-Tenant (`POST /decks/{deckId}/share` e `POST /decks/import-shared`):** Exportação/importação de baralhos entre diferentes usuários com código de compartilhamento único.
   - 🧪 **Plano de Testes:**
-    - *Testes Unitários:* `tests/unit/test_deck_exporter.py` (sanitização de chaves de usuário).
-    - *Testes de Integração:* `tests/integration/test_manage_decks_handler.py` (validação de CRUD e isolamento multi-tenant).
+    - *Testes Unitários:* `tests/unit/test_create_deck_unit.py` (6 testes cobrindo validações e isolamento de usuário).
+    - *Testes de Integração:* `tests/integration/test_analytics_and_decks.py` e `tests/integration/test_handlers.py` (validação de CRUD, exclusão em cascata e parâmetro `all=true`).
 
 ### 3.3. Configurações de Usuário e Parâmetros FSRS
 - **Lambda `UserPreferencesFunction` (`GET /user/preferences`, `PUT /user/preferences`)**
@@ -285,3 +288,4 @@ Esta fase entrega a experiência de acompanhamento de desempenho, retenção a l
   - 🧪 **Plano de Testes:**
     - *Testes Unitários:* `tests/unit/test_user_preferences_validation.py` (limites de retenção $0.7 \le r \le 0.97$).
     - *Testes de Integração:* `tests/integration/test_user_preferences_handler.py`.
+
