@@ -61,6 +61,56 @@ Resources:
         SSEEnabled: true
 
   # =========================================================================
+  # DynamoDB Table - Single Table Design
+  # =========================================================================
+  PagamentosTable:
+    Type: AWS::DynamoDB::Table
+
+    Properties:
+      TableName: !Sub 'geracao_de_pagamentos-${Stage}'
+
+      BillingMode: PAY_PER_REQUEST
+
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+
+        - AttributeName: SK
+          AttributeType: S
+
+        - AttributeName: GSI1PK
+          AttributeType: S
+
+        - AttributeName: GSI1SK
+          AttributeType: S
+
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+
+        - AttributeName: SK
+          KeyType: RANGE
+
+      GlobalSecondaryIndexes:
+
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+
+          Projection:
+            ProjectionType: ALL
+
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+      SSESpecification:
+        SSEEnabled: true
+
+  # =========================================================================
   # S3 Bucket for Document Uploads & OCR
   # =========================================================================
   DocumentsBucket:
@@ -420,6 +470,62 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /user/preferences
             Method: PUT
+
+  # =========================================================================
+  # Pagamentos - Asaas PIX
+  # =========================================================================
+
+  PaymentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.payments.lambda_handler
+      CodeUri: ../src/
+      Description: Cria cobrança PIX no Asaas e retorna QR Code + Pix Copia e Cola
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PagamentosTable
+      Environment:
+        Variables:
+          ASAAS_API_URL: https://api-sandbox.asaas.com/v3
+          ASAAS_API_KEY: $aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmVjYTE2OGY3LWVjM2QtNDZlMC1hODJiLThlM2FhMzcwYzhmZjo6JGFhY2hfN2E1ZTEyZTUtNmEyOC00NzdhLWE4ZDctMTY2ZTNmN2JmYTUz
+          TABLE_NAME: !Ref PagamentosTable
+      Events:
+        CreatePixPayment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /payments/pix/geraqrcode
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+  # =========================================================================
+  # Pagamentos_retorno - Asaas PIX
+  # =========================================================================
+
+  RetornosPaymentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.retorno_payment_assas.lambda_handler
+      CodeUri: ../src/
+      Description: recebe o retorno do pagamento do Asaas e atualiza o status no DynamoDB
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PagamentosTable
+      Environment:
+        Variables:
+          ASAAS_API_URL: https://api-sandbox.asaas.com/v3
+          ASAAS_API_KEY: $aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmVjYTE2OGY3LWVjM2QtNDZlMC1hODJiLThlM2FhMzcwYzhmZjo6JGFhY2hfN2E1ZTEyZTUtNmEyOC00NzdhLWE4ZDctMTY2ZTNmN2JmYTUz
+          TABLE_NAME: !Ref PagamentosTable
+      Events:
+        RetornoPixPayment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /payments/pix/retorno
+            Method: POST
+            Auth:
+              Authorizer: NONE
 
 Outputs:
   HttpApiUrl:
