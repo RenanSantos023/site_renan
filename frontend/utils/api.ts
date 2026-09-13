@@ -28,7 +28,7 @@ export function getApiBaseUrl(): string {
     const customUrl = localStorage.getItem('ultra_api_url');
     if (customUrl && customUrl.trim()) return customUrl.trim().replace(/\/+$/, '');
   }
-  return 'http://localhost:3001';
+  return 'https://ju54pptdwd.execute-api.us-east-1.amazonaws.com/dev';
 }
 
 /**

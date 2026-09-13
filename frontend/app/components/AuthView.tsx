@@ -3,13 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   signInUser, 
-  signUpUser, 
   confirmUserSignUp, 
   resendUserSignUpCode,
   resetUserPassword,
   confirmUserResetPassword,
   getAuthSessionToken 
 } from '../amplify-client';
+
+import { criarUsuario , confirmarUsuario , entrarUsuario} from '../../services/auth';
 
 interface AuthViewProps {
   onAuthSuccess: (userEmail: string, token: string) => void;
@@ -79,22 +80,28 @@ export default function AuthView({ onAuthSuccess, showToast }: AuthViewProps) {
     }
 
     setLoading(true);
+
     try {
-      const output = await signInUser(email, password);
-      if (output.isSignedIn) {
-        const token = await getAuthSessionToken();
+      const output = await entrarUsuario(email, password);
+
+      if (output.AuthenticationResult) {
+        const token = output.AuthenticationResult.IdToken || '';
+
         showToast('Login realizado com sucesso!', 'success');
-        onAuthSuccess(email, token || '');
-      } else if (output.nextStep?.signInStep === 'CONFIRM_SIGN_UP') {
-        showToast('Conta não confirmada. Digite o código enviado para o seu e-mail.', 'info');
-        setMode('confirm');
-        setResendCooldown(60);
+        onAuthSuccess(email, token);
+      } else if (output.ChallengeName) {
+        showToast(`Próxima etapa: ${output.ChallengeName}`, 'info');
       } else {
-        showToast(`Próxima etapa: ${output.nextStep?.signInStep}`, 'info');
+        showToast('Não foi possível concluir o login.', 'error');
       }
     } catch (err: any) {
       console.error('Erro de login:', err);
-      const msg = formatAuthError(err, 'Falha ao autenticar. Verifique suas credenciais e tente novamente.');
+
+      const msg = formatAuthError(
+        err,
+        'Falha ao autenticar. Verifique suas credenciais e tente novamente.'
+      );
+
       setErrorMessage(msg);
       showToast(msg, 'error');
     } finally {
@@ -138,8 +145,8 @@ export default function AuthView({ onAuthSuccess, showToast }: AuthViewProps) {
 
     setLoading(true);
     try {
-      const output = await signUpUser(email, password);
-      if (output.isSignUpComplete) {
+      const output = await criarUsuario(email, password);
+      if (output.UserConfirmed) {
         showToast('Cadastro realizado! Faça login.', 'success');
         setMode('signin');
       } else {
@@ -167,18 +174,31 @@ export default function AuthView({ onAuthSuccess, showToast }: AuthViewProps) {
     }
 
     setLoading(true);
+
     try {
-      await confirmUserSignUp(email, code);
-      showToast('E-mail verificado com sucesso! Agora você pode entrar.', 'success');
+      await confirmarUsuario(email, code);
+
+      showToast(
+        'E-mail verificado com sucesso! Agora você pode entrar.',
+        'success'
+      );
+
       setMode('signin');
       setCode('');
       setPassword('');
       setConfirmPassword('');
+
     } catch (err: any) {
       console.error('Erro de confirmação:', err);
-      const msg = formatAuthError(err, 'Código inválido ou expirado.');
+
+      const msg = formatAuthError(
+        err,
+        'Código inválido ou expirado.'
+      );
+
       setErrorMessage(msg);
       showToast(msg, 'error');
+
     } finally {
       setLoading(false);
     }

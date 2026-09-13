@@ -106,21 +106,36 @@ export async function signOutUser(): Promise<void> {
 
 export async function getAuthSessionToken(): Promise<string | null> {
   try {
-    const configured = configureAmplifyAuth();
-    if (!configured) return null;
-    const session = await fetchAuthSession();
-    return session.tokens?.idToken?.toString() || session.tokens?.accessToken?.toString() || null;
-  } catch (e) {
+    configureAmplifyAuth();
+
+    const session = await fetchAuthSession({
+      forceRefresh: false,
+    });
+
+    // Token usado na autenticação da API
+    const accessToken = session.tokens?.accessToken?.toString();
+
+    if (accessToken) {
+      console.log("✅ Access Token obtido");
+      return accessToken;
+    }
+
+    console.error("❌ Access Token não encontrado na sessão Cognito");
+
+    return null;
+  } catch (error) {
+    console.error("❌ Erro ao obter token Cognito:", error);
     return null;
   }
 }
 
 export async function getCurrentAuthenticatedUser() {
   try {
-    const configured = configureAmplifyAuth();
-    if (!configured) return null;
+    configureAmplifyAuth();
+
     return await getCurrentUser();
-  } catch (e) {
+  } catch (error) {
+    console.error("❌ Erro ao obter usuário:", error);
     return null;
   }
 }
