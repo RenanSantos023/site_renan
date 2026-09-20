@@ -10,7 +10,7 @@ import {
 
 const REGION = "us-east-1";
 
-const CLIENT_ID = "kloh4rssen2aul74f5p7g95qr";
+const CLIENT_ID = "2ccefrdvvafapcv7tci71e98v8";
 
 const client = new CognitoIdentityProviderClient({
   region: REGION,
